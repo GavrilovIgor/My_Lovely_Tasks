@@ -18,7 +18,7 @@ import logging
 # Настройка базового логгера: логи будут писаться в файл bot.log
 logging.basicConfig(
     handlers=[
-        logging.FileHandler('bot.log'),
+        logging.FileHandler('/app/bot.log'),
         logging.StreamHandler()  # Добавляем вывод в консоль
     ],
     level=logging.INFO,

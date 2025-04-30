@@ -1,1 +1,4 @@
 .DS_Store
+.env
+bot.log
+tasks.db
