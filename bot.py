@@ -1,4 +1,5 @@
 import os
+import re
 import sqlite3
 from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove
 from dotenv import load_dotenv
@@ -158,7 +159,7 @@ def get_task_list_markup(user_id):
     return InlineKeyboardMarkup(keyboard) if keyboard else None
 
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Введите задачи через точку с запятой (например: Задача 1; Задача 2):")
+    await update.message.reply_text("Введите задачи с новой строки или через точку с запятой (например: Задача 1; Задача 2):")
     return ADDING_TASK
 
 async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -169,7 +170,7 @@ async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Пустой ввод. Попробуйте снова.")
         return ConversationHandler.END
     
-    tasks_list = [task.strip() for task in input_text.split(";") if task.strip()]
+    tasks_list = [task.strip() for task in re.split(r';|\n', input_text) if task.strip()]
     added_count = 0
     
     for task_text in tasks_list:
