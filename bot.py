@@ -187,6 +187,14 @@ async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     input_text = update.message.text.strip()
     
+    # Проверяем, нажал ли пользователь кнопку отмены
+    if input_text == "❌ Отмена":
+        await update.message.reply_text(
+            "Добавление отменено.",
+            reply_markup=get_main_keyboard()
+        )
+        return ConversationHandler.END
+    
     # Список текстов кнопок, которые не должны добавляться как задачи
     menu_buttons = ["➕ Добавить задачу", "📋 Мои задачи", "🗑 Удалить задачу", "🧹 Удалить выполненные"]
     
@@ -292,13 +300,16 @@ async def task_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def ask_delete_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    tasks = get_tasks_db(update.message.from_user.id)
-    if not tasks:
-        await update.message.reply_text("У вас нет задач для удаления.", reply_markup=get_main_keyboard())
-        return ConversationHandler.END
+    # Создаем клавиатуру с кнопкой отмены
+    cancel_keyboard = ReplyKeyboardMarkup(
+        [["❌ Отмена"]],
+        resize_keyboard=True,
+        one_time_keyboard=True
+    )
+    
     await update.message.reply_text(
-        "Удалите задачи, перечислив их порядковые номера через запятую (например: 1,2,4)",
-        reply_markup=get_main_keyboard()
+        "Введите номера задач для удаления через запятую или диапазон (например: 1,3,5-7):",
+        reply_markup=cancel_keyboard
     )
     return DELETING_TASKS
 
@@ -330,9 +341,31 @@ async def add_task_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 import re
 
+async def ask_add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Создаем клавиатуру с кнопкой отмены
+    cancel_keyboard = ReplyKeyboardMarkup(
+        [["❌ Отмена"]],
+        resize_keyboard=True,
+        one_time_keyboard=True
+    )
+    
+    await update.message.reply_text(
+        "Введите задачи через точку с запятой или с новой строки:",
+        reply_markup=cancel_keyboard
+    )
+    return ADDING_TASK
+
 async def delete_tasks_by_numbers(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     input_text = update.message.text.strip()
+    
+    # Проверяем, нажал ли пользователь кнопку отмены
+    if input_text == "❌ Отмена":
+        await update.message.reply_text(
+            "Удаление отменено.",
+            reply_markup=get_main_keyboard()
+        )
+        return ConversationHandler.END
     
     # Список текстов кнопок, которые не должны обрабатываться как номера задач
     menu_buttons = ["➕ Добавить задачу", "📋 Мои задачи", "🗑 Удалить задачу", "🧹 Удалить выполненные"]
@@ -370,6 +403,13 @@ async def delete_tasks_by_numbers(update: Update, context: ContextTypes.DEFAULT_
             reply_markup=get_main_keyboard()
         )
         return ConversationHandler.END
+
+    for task_id in to_delete:
+        delete_task_db(task_id, user_id)
+
+    await update.message.reply_text("Выбранные задачи удалены.", reply_markup=get_main_keyboard())
+    await list_tasks(update, context)
+    return ConversationHandler.END
 
     for task_id in to_delete:
         delete_task_db(task_id, user_id)
