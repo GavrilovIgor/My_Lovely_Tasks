@@ -52,10 +52,13 @@ def add_task_db(user_id, text):
     conn.close()
     logger.info(f"Добавлена задача: user_id={user_id}, text='{text}'")
 
-def get_tasks_db(user_id):
+def get_tasks_db(user_id, only_open=False):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("SELECT id, text, done FROM tasks WHERE user_id = ? ORDER BY id", (user_id,))
+    if only_open:
+        c.execute("SELECT id, text, done FROM tasks WHERE user_id = ? AND done = 0 ORDER BY id", (user_id,))
+    else:
+        c.execute("SELECT id, text, done FROM tasks WHERE user_id = ? ORDER BY id", (user_id,))
     tasks = c.fetchall()
     conn.close()
     return tasks
@@ -149,7 +152,8 @@ def delete_task_db(task_id, user_id):
 # --- Telegram-бот ---
 
 def get_task_list_markup(user_id):
-    tasks = get_tasks_db(user_id)
+    # Важно: используем тот же параметр only_open, что и в list_tasks
+    tasks = get_tasks_db(user_id, only_open=False)
     keyboard = []
 
     # Статистика
@@ -196,7 +200,7 @@ async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     
     # Список текстов кнопок, которые не должны добавляться как задачи
-    menu_buttons = ["➕ Добавить задачу", "📋 Мои задачи", "🗑 Удалить задачу", "🧹 Удалить выполненные"]
+    menu_buttons = ["➕ Добавить задачу", "📋 Мои задачи", "🗑 Удалить задачу", "🧹 Удалить выполненные", "❌ Отмена"]
     
     if not input_text:
         await update.message.reply_text("Пустой ввод. Попробуйте снова.")
@@ -220,7 +224,7 @@ async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    tasks = get_tasks_db(user_id)
+    tasks = get_tasks_db(user_id, only_open=False)
     
     if not tasks:
         await update.message.reply_text("У вас пока нет задач 🙂")
@@ -269,7 +273,7 @@ async def task_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Массовое переключение
     if data == "toggle_all":
-        tasks = get_tasks_db(user_id)
+        tasks = get_tasks_db(user_id, only_open=False)  # Явно указываем параметр
         if not tasks:
             await query.answer("Нет задач для изменения")
             return
@@ -318,7 +322,7 @@ async def add_task_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
     text = update.message.text.strip()
     
     # Список текстов кнопок, которые не должны добавляться как задачи
-    menu_buttons = ["➕ Добавить задачу", "📋 Мои задачи", "🗑 Удалить задачу", "🧹 Удалить выполненные"]
+    menu_buttons = ["➕ Добавить задачу", "📋 Мои задачи", "🗑 Удалить задачу", "🧹 Удалить выполненные", "❌ Отмена"]
     
     if not text or text.startswith('/'):
         return  # Игнорируем пустые сообщения и команды
@@ -368,7 +372,7 @@ async def delete_tasks_by_numbers(update: Update, context: ContextTypes.DEFAULT_
         return ConversationHandler.END
     
     # Список текстов кнопок, которые не должны обрабатываться как номера задач
-    menu_buttons = ["➕ Добавить задачу", "📋 Мои задачи", "🗑 Удалить задачу", "🧹 Удалить выполненные"]
+    menu_buttons = ["➕ Добавить задачу", "📋 Мои задачи", "🗑 Удалить задачу", "🧹 Удалить выполненные", "❌ Отмена"]
     
     if input_text in menu_buttons:
         # Если это кнопка меню, обрабатываем её как нажатие кнопки
@@ -376,7 +380,7 @@ async def delete_tasks_by_numbers(update: Update, context: ContextTypes.DEFAULT_
         return ConversationHandler.END
     
     input_text = input_text.replace(' ', '')
-    tasks = get_tasks_db(user_id)
+    tasks = get_tasks_db(user_id, only_open=False)  # Явно указываем параметр
     to_delete = set()
 
     # Разбиваем по запятой
@@ -459,8 +463,13 @@ def main():
     ))
 
     # 5. Настройка и запуск планировщика
-    from apscheduler.schedulers.background import BackgroundScheduler  # если не импортировал выше
+    from apscheduler.schedulers.background import BackgroundScheduler
     scheduler = BackgroundScheduler()
+    
+    # Удаляем выполненные задачи при запуске бота
+    delete_completed_tasks()
+    print("Выполненные задачи удалены при запуске.")
+    
     scheduler.add_job(delete_completed_tasks, 'cron', hour=23, minute=59)
     scheduler.start()
     print("Планировщик запущен: задачи будут очищаться в 23:59.")
