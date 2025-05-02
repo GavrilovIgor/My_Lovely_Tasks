@@ -63,7 +63,7 @@ def get_tasks_db(user_id):
 def get_main_keyboard():
     return ReplyKeyboardMarkup(
         [
-            ["➕ Добавить задачу", "📋 Мои задачи", "🗑 Удалить задачу"]
+            ["➕ Добавить задачу", "📋 Мои задачи", "🗑 Удалить задачу", "🧹 Удалить выполненные"]
         ],
         resize_keyboard=True
     )
@@ -97,6 +97,14 @@ def delete_completed_tasks():
     conn.close()
     print("Выполненные задачи удалены из базы.")
 
+def delete_completed_tasks_for_user(user_id):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("DELETE FROM tasks WHERE user_id = ? AND done = 1", (user_id,))
+    conn.commit()
+    conn.close()
+
+
 async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         text = update.message.text
@@ -107,6 +115,12 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return ConversationHandler.END
         elif text == "🗑 Удалить задачу":  # Добавлено!
             return await ask_delete_tasks(update, context)
+        elif text == "🧹 Удалить выполненные":
+            user_id = update.message.from_user.id
+            delete_completed_tasks_for_user(user_id)
+            await update.message.reply_text("Выполненные задачи удалены.", reply_markup=get_main_keyboard())
+            await list_tasks(update, context)
+            return ConversationHandler.END
     except Exception as e:
         logger.error(f"Ошибка: {e}")
         return ConversationHandler.END
@@ -334,7 +348,8 @@ async def delete_tasks_by_numbers(update: Update, context: ContextTypes.DEFAULT_
 menu_filter = (
     filters.Regex(r"^➕ Добавить задачу$") |
     filters.Regex(r"^📋 Мои задачи$") |
-    filters.Regex(r"^🗑 Удалить задачу$")
+    filters.Regex(r"^🗑 Удалить задачу$") |
+    filters.Regex(r"^🧹 Удалить выполненные$")
 ) & ~filters.COMMAND
 
 def main():
