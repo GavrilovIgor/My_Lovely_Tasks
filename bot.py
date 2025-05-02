@@ -187,8 +187,17 @@ async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     input_text = update.message.text.strip()
     
+    # Список текстов кнопок, которые не должны добавляться как задачи
+    menu_buttons = ["➕ Добавить задачу", "📋 Мои задачи", "🗑 Удалить задачу", "🧹 Удалить выполненные"]
+    
     if not input_text:
         await update.message.reply_text("Пустой ввод. Попробуйте снова.")
+        return ConversationHandler.END
+    
+    # Проверяем, не является ли ввод текстом кнопки меню
+    if input_text in menu_buttons:
+        # Если это кнопка меню, обрабатываем её как нажатие кнопки
+        await main_menu_handler(update, context)
         return ConversationHandler.END
     
     tasks_list = [task.strip() for task in re.split(r';|\n', input_text) if task.strip()]
@@ -206,7 +215,7 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tasks = get_tasks_db(user_id)
     
     if not tasks:
-        await update.message.reply_text("У вас пока нет задач. Добавьте командой /add.")
+        await update.message.reply_text("У вас пока нет задач 🙂")
         return
 
     task_texts = [
@@ -296,11 +305,19 @@ async def ask_delete_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def add_task_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     text = update.message.text.strip()
+    
+    # Список текстов кнопок, которые не должны добавляться как задачи
+    menu_buttons = ["➕ Добавить задачу", "📋 Мои задачи", "🗑 Удалить задачу", "🧹 Удалить выполненные"]
+    
     if not text or text.startswith('/'):
         return  # Игнорируем пустые сообщения и команды
+    
+    # Проверяем, не является ли ввод текстом кнопки меню
+    if text in menu_buttons:
+        return  # Игнорируем тексты кнопок меню
+    
     # Разделяем по ; или по переводу строки
-    # Разделяем только по переводу строки (каждая строка - отдельная задача)
-    tasks_list = [line.strip() for line in text.split('\n') if line.strip()]
+    tasks_list = [task.strip() for task in re.split(r';|\n', text) if task.strip()]
     added_count = 0
     for task_text in tasks_list:
         add_task_db(user_id, task_text)
@@ -315,7 +332,17 @@ import re
 
 async def delete_tasks_by_numbers(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
-    input_text = update.message.text.strip().replace(' ', '')
+    input_text = update.message.text.strip()
+    
+    # Список текстов кнопок, которые не должны обрабатываться как номера задач
+    menu_buttons = ["➕ Добавить задачу", "📋 Мои задачи", "🗑 Удалить задачу", "🧹 Удалить выполненные"]
+    
+    if input_text in menu_buttons:
+        # Если это кнопка меню, обрабатываем её как нажатие кнопки
+        await main_menu_handler(update, context)
+        return ConversationHandler.END
+    
+    input_text = input_text.replace(' ', '')
     tasks = get_tasks_db(user_id)
     to_delete = set()
 
