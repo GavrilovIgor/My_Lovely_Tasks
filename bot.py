@@ -291,23 +291,37 @@ async def add_task_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
     logger.info(f"Добавлены задачи через универсальный обработчик: user_id={user_id}, tasks={tasks_list}")
 
+import re
+
 async def delete_tasks_by_numbers(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
-    input_text = update.message.text.strip()
-    try:
-        nums = [int(x) for x in input_text.split(",") if x.strip().isdigit()]
-    except Exception:
-        await update.message.reply_text("Некорректный ввод. Введите номера через запятую.", reply_markup=get_main_keyboard())
-        return DELETING_TASKS
-
+    input_text = update.message.text.strip().replace(' ', '')
     tasks = get_tasks_db(user_id)
-    to_delete = []
-    for n in nums:
-        if 1 <= n <= len(tasks):
-            to_delete.append(tasks[n-1][0])  # task_id
+    to_delete = set()
+
+    # Разбиваем по запятой
+    for part in input_text.split(','):
+        if '-' in part:
+            # Диапазон, например 2-5
+            try:
+                start, end = map(int, part.split('-'))
+                for n in range(start, end + 1):
+                    if 1 <= n <= len(tasks):
+                        to_delete.add(tasks[n-1][0])  # task_id
+            except Exception:
+                continue
+        else:
+            # Одиночный номер
+            if part.isdigit():
+                n = int(part)
+                if 1 <= n <= len(tasks):
+                    to_delete.add(tasks[n-1][0])  # task_id
 
     if not to_delete:
-        await update.message.reply_text("Нет подходящих задач для удаления.", reply_markup=get_main_keyboard())
+        await update.message.reply_text(
+            "Нет подходящих задач для удаления. Введите номера через запятую или диапазон, например: 1,3,5-7",
+            reply_markup=get_main_keyboard()
+        )
         return ConversationHandler.END
 
     for task_id in to_delete:
