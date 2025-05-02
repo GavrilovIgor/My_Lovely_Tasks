@@ -15,15 +15,16 @@ ADDING_TASK = 1
 DELETING_TASKS = 2
 
 import logging
+import os
 
-# Настройка базового логгера: логи будут писаться в файл bot.log
+# Получаем абсолютный путь к log-файлу в текущей директории проекта
+LOG_PATH = os.path.join(os.path.dirname(__file__), "bot.log")
+
 logging.basicConfig(
-    handlers=[
-        logging.FileHandler('/app/bot.log'),
-        logging.StreamHandler()  # Добавляем вывод в консоль
-    ],
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    filename=LOG_PATH,
+    filemode="a",
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
@@ -275,16 +276,20 @@ async def ask_delete_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def add_task_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     text = update.message.text.strip()
-    
     if not text or text.startswith('/'):
         return  # Игнорируем пустые сообщения и команды
-    
-    add_task_db(user_id, text)
+    # Разделяем по ; или по переводу строки
+    # Разделяем только по переводу строки (каждая строка - отдельная задача)
+    tasks_list = [line.strip() for line in text.split('\n') if line.strip()]
+    added_count = 0
+    for task_text in tasks_list:
+        add_task_db(user_id, task_text)
+        added_count += 1
     await update.message.reply_text(
-        f"✅ Задача добавлена: {text}",
+        "✅ Задачи добавлены!" if added_count > 1 else f"✅ Задача добавлена: {tasks_list[0]}",
         reply_markup=get_main_keyboard()
     )
-    logger.info(f"Добавлена задача через универсальный обработчик: user_id={user_id}, text='{text}'")
+    logger.info(f"Добавлены задачи через универсальный обработчик: user_id={user_id}, tasks={tasks_list}")
 
 async def delete_tasks_by_numbers(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
