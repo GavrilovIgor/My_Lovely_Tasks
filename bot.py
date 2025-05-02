@@ -180,7 +180,7 @@ def get_task_list_markup(user_id):
     return InlineKeyboardMarkup(keyboard) if keyboard else None
 
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Введите задачи с новой строки или через точку с запятой (например: Задача 1; Задача 2):")
+    await update.message.reply_text("Вводите задачи с новой строки или через точку с запятой (например: Задача 1\nЗадача 2\n или\nЗадача 1; Задача 2)")
     return ADDING_TASK
 
 async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
