@@ -366,7 +366,7 @@ async def delete_tasks_by_numbers(update: Update, context: ContextTypes.DEFAULT_
     # Проверяем, нажал ли пользователь кнопку отмены
     if input_text == "❌ Отмена":
         await update.message.reply_text(
-            "Удаление отменено.",
+            "Удаление отменено",
             reply_markup=get_main_keyboard()
         )
         return ConversationHandler.END
