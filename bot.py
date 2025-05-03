@@ -1,6 +1,7 @@
 import os
 import re
 import sqlite3
+from telegram import BotCommand, BotCommandScopeDefault
 from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -107,6 +108,18 @@ def delete_completed_tasks_for_user(user_id):
     conn.commit()
     conn.close()
 
+async def setup_commands(application):
+    commands = [
+        BotCommand("start", "Перезапустить бота / обновить меню"),
+        BotCommand("list", "Показать список задач"),
+        BotCommand("add", "Добавить новую задачу")
+    ]
+    
+    await application.bot.set_my_commands(
+        commands,
+        scope=BotCommandScopeDefault()
+    )
+    logger.info("Команды бота настроены")
 
 async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
