@@ -181,12 +181,9 @@ def get_task_list_markup(user_id):
     ])
 
     for i, (task_id, text, done) in enumerate(tasks, 1):
-        # Добавляем перечеркивание для выполненных задач
         if done:
-            # Используем символы перечеркивания Unicode для кнопок
+            # Добавляем галочки в начале и в конце вместо перечеркивания
             task_text = f"{i}. ✅ {text}"
-            # Альтернативный вариант с другими символами
-            # task_text = f"{i}. ✅ ⟨{text}⟩"
         else:
             task_text = f"{i}. ☐ {text}"
         keyboard.append([
@@ -197,7 +194,6 @@ def get_task_list_markup(user_id):
         ])
 
     return InlineKeyboardMarkup(keyboard) if keyboard else None
-
 
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Вводите задачи с новой строки или через точку с запятой (например: Задача 1\nЗадача 2\n или\nЗадача 1; Задача 2)")
@@ -250,15 +246,15 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("У вас пока нет задач 🙂")
         return
 
-    # Удаляем текстовый список и оставляем только интерактивные кнопки
+    # Убираем текст и оставляем только кнопки
     if update.callback_query:
         await update.callback_query.edit_message_text(
-            text="📋 Управление задачами:",
+            text="📋 Мои задачи:",  # Минимальный текст 
             reply_markup=get_task_list_markup(user_id)
         )
     else:
         await update.message.reply_text(
-            "📋 Управление задачами:",
+            "📋 Мои задачи:",  # Минимальный текст 
             reply_markup=get_task_list_markup(user_id)
         )
 
