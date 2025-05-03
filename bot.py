@@ -6,7 +6,6 @@ from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (ApplicationBuilder, CommandHandler, CallbackQueryHandler,
     ContextTypes, MessageHandler, filters, ConversationHandler)
-from apscheduler.schedulers.background import BackgroundScheduler
 
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
@@ -468,18 +467,6 @@ def main():
         filters.TEXT & ~filters.COMMAND & ~menu_filter,
         add_task_from_text
     ))
-
-    # 5. Настройка и запуск планировщика
-    from apscheduler.schedulers.background import BackgroundScheduler
-    scheduler = BackgroundScheduler()
-    
-    # Удаляем выполненные задачи при запуске бота
-    delete_completed_tasks()
-    print("Выполненные задачи удалены при запуске.")
-    
-    scheduler.add_job(delete_completed_tasks, 'cron', hour=23, minute=59)
-    scheduler.start()
-    print("Планировщик запущен: задачи будут очищаться в 23:59.")
 
     # 6. Запуск бота
     print("Бот запущен! Данные сохраняются в tasks.db.")
