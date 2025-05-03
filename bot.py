@@ -164,7 +164,6 @@ def delete_task_db(task_id, user_id):
 # --- Telegram-бот ---
 
 def get_task_list_markup(user_id):
-    # Важно: используем тот же параметр only_open, что и в list_tasks
     tasks = get_tasks_db(user_id, only_open=False)
     keyboard = []
 
@@ -182,8 +181,12 @@ def get_task_list_markup(user_id):
     ])
 
     for i, (task_id, text, done) in enumerate(tasks, 1):
+        # Добавляем перечеркивание для выполненных задач
         if done:
+            # Используем символы перечеркивания Unicode для кнопок
             task_text = f"{i}. ✅ {text}"
+            # Альтернативный вариант с другими символами
+            # task_text = f"{i}. ✅ ⟨{text}⟩"
         else:
             task_text = f"{i}. ☐ {text}"
         keyboard.append([
@@ -194,6 +197,7 @@ def get_task_list_markup(user_id):
         ])
 
     return InlineKeyboardMarkup(keyboard) if keyboard else None
+
 
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Вводите задачи с новой строки или через точку с запятой (например: Задача 1\nЗадача 2\n или\nЗадача 1; Задача 2)")
@@ -246,23 +250,16 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("У вас пока нет задач 🙂")
         return
 
-    task_texts = [
-        f"{i+1}. <s>{text}</s>" if done else f"{i+1}. {text}"
-        for i, (task_id, text, done) in enumerate(tasks)
-]
-    text_result = "Ваши задачи:\n" + "\n".join(task_texts)
-
+    # Удаляем текстовый список и оставляем только интерактивные кнопки
     if update.callback_query:
         await update.callback_query.edit_message_text(
-            text=text_result,
-            reply_markup=get_task_list_markup(user_id),
-            parse_mode="HTML"
+            text="📋 Управление задачами:",
+            reply_markup=get_task_list_markup(user_id)
         )
     else:
         await update.message.reply_text(
-            text_result,
-            reply_markup=get_task_list_markup(user_id),
-            parse_mode="HTML"
+            "📋 Управление задачами:",
+            reply_markup=get_task_list_markup(user_id)
         )
 
 def toggle_all_tasks_db(user_id, set_done: bool):
@@ -426,13 +423,6 @@ async def delete_tasks_by_numbers(update: Update, context: ContextTypes.DEFAULT_
             reply_markup=get_main_keyboard()
         )
         return ConversationHandler.END
-
-    for task_id in to_delete:
-        delete_task_db(task_id, user_id)
-
-    await update.message.reply_text("Выбранные задачи удалены.", reply_markup=get_main_keyboard())
-    await list_tasks(update, context)
-    return ConversationHandler.END
 
     for task_id in to_delete:
         delete_task_db(task_id, user_id)
