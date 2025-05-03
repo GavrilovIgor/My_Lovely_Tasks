@@ -131,7 +131,7 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "😺 Привет, организованный человек! Я – твой уютный помощник для задач!\n\n"
+        "😺 Привет, организованный человек! Я – твой карманный помощник для задач!\n\n"
         "📝 Я создан, чтобы твоё \"Избранное\" не превращалось в свалку списков дел, а жизнь стала проще! \n\n"
         "✨ Что я умею:\n"
         "- Добавлять задачи (просто напиши мне что нужно сделать!)\n"
@@ -220,6 +220,10 @@ async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         added_count += 1
     
     await update.message.reply_text("✅ Задачи добавлены!", reply_markup=get_main_keyboard())
+    
+    # Сразу показываем список задач
+    await list_tasks(update, context)
+    
     return ConversationHandler.END
 
 async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -342,6 +346,9 @@ async def add_task_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
         reply_markup=get_main_keyboard()
     )
     logger.info(f"Добавлены задачи через универсальный обработчик: user_id={user_id}, tasks={tasks_list}")
+    
+    # Сразу показываем список задач
+    await list_tasks(update, context)
 
 import re
 
