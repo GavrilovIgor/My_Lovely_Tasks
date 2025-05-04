@@ -214,17 +214,16 @@ def get_task_list_markup(user_id):
         )
     ])
     keyboard.append([
-        InlineKeyboardButton(text="▬▬▬▬▬▬▬▬▬▬", callback_data="divider")
-    ])
-
-    # Добавляем кнопку для управления приоритетами
-    keyboard.append([
         InlineKeyboardButton(
             text="🔝 Определить приоритет",
             callback_data="priority_mode"
         )
     ])
     
+    keyboard.append([
+        InlineKeyboardButton(text="▬▬▬▬▬▬▬▬▬▬", callback_data="divider")
+    ])
+
     # Словарь эмодзи для приоритетов
     priority_emoji = {
         3: "🔴", # Высокий
@@ -346,8 +345,8 @@ async def set_task_priority(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Обновляем приоритет в базе данных
     update_task_priority(task_id, priority)
     
-    # Сразу возвращаемся к списку задач без промежуточного сообщения
-    await list_tasks(update, context)
+    # Возвращаемся к меню расстановки приоритетов вместо списка задач
+    await show_priority_menu(update, context)
 
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Вводите задачи с новой строки или через точку с запятой (например: Задача 1\nЗадача 2\n или\nЗадача 1; Задача 2)")
