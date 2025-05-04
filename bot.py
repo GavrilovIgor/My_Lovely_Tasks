@@ -1,12 +1,12 @@
 import os
 import re
 import sqlite3
+from datetime import datetime, timedelta, date
+import time
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler, CallbackQueryHandler, CallbackContext
 from telegram import BotCommand, BotCommandScopeDefault
-from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove
 from dotenv import load_dotenv
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (ApplicationBuilder, CommandHandler, CallbackQueryHandler,
-    ContextTypes, MessageHandler, filters, ConversationHandler)
 
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
@@ -39,7 +39,8 @@ def init_db():
             user_id INTEGER,
             text TEXT,
             done INTEGER DEFAULT 0,
-            priority INTEGER DEFAULT 0
+            priority INTEGER DEFAULT 0,
+            reminder_time TIMESTAMP DEFAULT NULL
         )
     """)
     
@@ -52,16 +53,42 @@ def init_db():
         c.execute("ALTER TABLE tasks ADD COLUMN priority INTEGER DEFAULT 0")
         print("Добавлена колонка priority в таблицу tasks")
     
+    # Если колонки reminder_time нет, добавляем ее
+    if 'reminder_time' not in columns:
+        c.execute("ALTER TABLE tasks ADD COLUMN reminder_time TIMESTAMP DEFAULT NULL")
+        print("Добавлена колонка reminder_time в таблицу tasks")
+    
     conn.commit()
     conn.close()
 
 def add_task_db(user_id, text, priority=0):
+    # Извлекаем время напоминания из текста задачи
+    reminder_time, clean_text = extract_reminder_time(text)
+    
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("INSERT INTO tasks (user_id, text, done, priority) VALUES (?, ?, 0, ?)", (user_id, text, priority))
+    
+    if reminder_time:
+        # Если есть напоминание, сохраняем его
+        reminder_str = reminder_time.strftime('%Y-%m-%d %H:%M:%S')
+        c.execute("""
+            INSERT INTO tasks (user_id, text, done, priority, reminder_time) 
+            VALUES (?, ?, 0, ?, ?)
+        """, (user_id, clean_text, priority, reminder_str))
+        task_id = c.lastrowid
+        logger.info(f"Добавлена задача с напоминанием: id={task_id}, user_id={user_id}, text='{clean_text}', reminder={reminder_str}")
+    else:
+        # Если напоминания нет, сохраняем без него
+        c.execute("""
+            INSERT INTO tasks (user_id, text, done, priority) 
+            VALUES (?, ?, 0, ?)
+        """, (user_id, text, priority))
+        task_id = c.lastrowid
+        logger.info(f"Добавлена задача: id={task_id}, user_id={user_id}, text='{text}'")
+    
     conn.commit()
     conn.close()
-    logger.info(f"Добавлена задача: user_id={user_id}, text='{text}'")
+    return task_id
 
 def update_task_priority(task_id, priority):
     conn = sqlite3.connect(DB_PATH)
@@ -74,9 +101,19 @@ def get_tasks_db(user_id, only_open=False):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     if only_open:
-        c.execute("SELECT id, text, done, priority FROM tasks WHERE user_id = ? AND done = 0 ORDER BY priority DESC, id", (user_id,))
+        c.execute("""
+            SELECT id, text, done, priority, reminder_time 
+            FROM tasks 
+            WHERE user_id = ? AND done = 0 
+            ORDER BY id
+        """, (user_id,))
     else:
-        c.execute("SELECT id, text, done, priority FROM tasks WHERE user_id = ? ORDER BY priority DESC, id", (user_id,))
+        c.execute("""
+            SELECT id, text, done, priority, reminder_time 
+            FROM tasks 
+            WHERE user_id = ? 
+            ORDER BY id
+        """, (user_id,))
     tasks = c.fetchall()
     conn.close()
     return tasks
@@ -110,6 +147,83 @@ def toggle_task_db(task_id, user_id):
     finally:
         if conn:
             conn.close()
+
+def extract_reminder_time(text):
+    """Извлекает время напоминания из текста задачи"""
+    logger.info(f"Обработка текста для напоминания: '{text}'")
+    
+    # Ищем время в формате @ЧЧ:ММ
+    match = re.search(r'@(\d{1,2}):(\d{2})', text)
+    if not match:
+        logger.info("Напоминание не найдено")
+        return None, text
+    
+    hour = int(match.group(1))
+    minute = int(match.group(2))
+    logger.info(f"Найдено время: {hour}:{minute}")
+    
+    # Удаляем напоминание из текста
+    clean_text = re.sub(r'@\d{1,2}:\d{2}', '', text).strip()
+    
+    # Создаем время напоминания
+    now = datetime.now()
+    reminder_time = datetime(now.year, now.month, now.day, hour, minute)
+    
+    # Если время уже прошло, устанавливаем на завтра
+    if reminder_time < now:
+        reminder_time = reminder_time + timedelta(days=1)
+    
+    logger.info(f"Установлено напоминание на: {reminder_time}")
+    return reminder_time, clean_text
+
+def set_reminder(task_id, reminder_time):
+    """Устанавливает время напоминания для задачи"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("UPDATE tasks SET reminder_time = ? WHERE id = ?", 
+              (reminder_time.strftime('%Y-%m-%d %H:%M:%S') if reminder_time else None, task_id))
+    conn.commit()
+    conn.close()
+    logger.info(f"Установлено напоминание для задачи id={task_id} на {reminder_time}")
+
+def get_tasks_with_reminders(user_id):
+    """Получает список задач с напоминаниями для пользователя"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
+        SELECT id, text, done, priority, reminder_time 
+        FROM tasks 
+        WHERE user_id = ? AND reminder_time IS NOT NULL
+        ORDER BY reminder_time
+    """, (user_id,))
+    tasks = c.fetchall()
+    conn.close()
+    return tasks
+
+def check_due_reminders():
+    """Проверяет задачи с истекшим временем напоминания"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    # Выводим все напоминания для отладки
+    c.execute("SELECT id, user_id, text, reminder_time FROM tasks WHERE reminder_time IS NOT NULL")
+    all_reminders = c.fetchall()
+    logger.info(f"Все напоминания в системе: {all_reminders}")
+    
+    # Проверяем напоминания, время которых наступило
+    c.execute("""
+        SELECT id, user_id, text, done, reminder_time 
+        FROM tasks 
+        WHERE reminder_time IS NOT NULL AND reminder_time <= ? AND done = 0
+    """, (now,))
+    due_tasks = c.fetchall()
+    conn.close()
+    
+    logger.info(f"Проверка напоминаний на {now}: найдено {len(due_tasks)} задач")
+    if due_tasks:
+        logger.info(f"Задачи с истекшим временем: {due_tasks}")
+    return due_tasks
 
 def toggle_task_status_db(task_id, new_status=None):
     conn = sqlite3.connect(DB_PATH)
@@ -230,6 +344,14 @@ def get_task_list_markup(user_id):
         )
     ])
     
+    # Кнопка напоминаний
+    keyboard.append([
+        InlineKeyboardButton(
+            text=f"🆙 [ Напоминания ]",
+            callback_data="reminder_mode"
+        )
+    ])
+    
     # Улучшенный разделитель
     keyboard.append([
         InlineKeyboardButton(text="▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂", callback_data="divider")
@@ -242,7 +364,7 @@ def get_task_list_markup(user_id):
         1: "🔵"  # Низкий
     }
 
-    for task_id, text, done, priority in tasks:
+    for task_id, text, done, priority, reminder_time in tasks:
         # Формируем статус задачи
         status = "✅" if done else "☐"
         
@@ -254,7 +376,11 @@ def get_task_list_markup(user_id):
             priority_icon = priority_emoji.get(priority, "")
             task_text += f"{priority_icon} "
         
-        # Добавляем текст задачи (хэштеги будут видны в тексте)
+        # Добавляем индикатор напоминания, если оно установлено
+        if reminder_time:
+            task_text += f"🔔 "
+        
+        # Добавляем текст задачи
         task_text += text
         
         keyboard.append([
@@ -265,6 +391,212 @@ def get_task_list_markup(user_id):
         ])
 
     return InlineKeyboardMarkup(keyboard) if keyboard else None
+
+async def show_reminders_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    tasks_with_reminders = get_tasks_with_reminders(user_id)
+    
+    keyboard = []
+    keyboard.append([
+        InlineKeyboardButton(
+            text="Задачи с напоминаниями:",
+            callback_data="divider"
+        )
+    ])
+    
+    if not tasks_with_reminders:
+        keyboard.append([
+            InlineKeyboardButton(
+                text="У вас нет задач с напоминаниями",
+                callback_data="divider"
+            )
+        ])
+        keyboard.append([
+            InlineKeyboardButton(
+                text="Добавьте @время к задаче для создания напоминания",
+                callback_data="divider"
+            )
+        ])
+    else:
+        # Словарь эмодзи для приоритетов
+        priority_emoji = {
+            3: "🔴", # Высокий
+            2: "🟡", # Средний
+            1: "🔵"  # Низкий
+        }
+        
+        for task_id, text, done, priority, reminder_time in tasks_with_reminders:
+            # Преобразуем строку времени в объект datetime
+            if reminder_time:
+                reminder_dt = datetime.strptime(reminder_time, '%Y-%m-%d %H:%M:%S')
+                reminder_str = reminder_dt.strftime('%d.%m %H:%M')
+            else:
+                reminder_str = "Нет времени"
+            
+            # Формируем статус задачи
+            status = "✅" if done else "☐"
+            
+            # Добавляем приоритет если он установлен
+            priority_icon = ""
+            if priority > 0:
+                priority_icon = f"{priority_emoji.get(priority, '')} "
+            
+            task_text = f"{status} {priority_icon}[{reminder_str}] {text}"
+            
+            keyboard.append([
+                InlineKeyboardButton(
+                    text=task_text,
+                    callback_data=f"reminder_options_{task_id}"
+                )
+            ])
+    
+    keyboard.append([
+        InlineKeyboardButton(
+            text="↩️ Назад к списку задач",
+            callback_data="back_to_list"
+        )
+    ])
+    
+    await query.edit_message_text(
+        text="Управление напоминаниями:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def show_reminder_options(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    # Извлекаем ID задачи из callback_data
+    task_id = int(query.data.split('_')[2])
+    
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                text="❌ Удалить напоминание",
+                callback_data=f"delete_reminder_{task_id}"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="⏰ Отложить на 30 минут",
+                callback_data=f"snooze_reminder_{task_id}_30"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="⏰ Отложить на 1 час",
+                callback_data=f"snooze_reminder_{task_id}_60"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="⏰ Отложить на завтра",
+                callback_data=f"snooze_reminder_{task_id}_tomorrow"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="↩️ Назад к напоминаниям",
+                callback_data="reminder_mode"
+            )
+        ]
+    ]
+    
+    await query.edit_message_text(
+        text="Выберите действие с напоминанием:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def delete_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    # Извлекаем ID задачи из callback_data
+    task_id = int(query.data.split('_')[2])
+    
+    # Удаляем напоминание (устанавливаем NULL)
+    set_reminder(task_id, None)
+    
+    # Возвращаемся к списку напоминаний
+    await show_reminders_menu(update, context)
+
+async def snooze_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    # Извлекаем ID задачи и время отсрочки из callback_data
+    parts = query.data.split('_')
+    task_id = int(parts[2])
+    snooze_value = parts[3]
+    
+    # Получаем текущее время напоминания
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT reminder_time FROM tasks WHERE id = ?", (task_id,))
+    result = c.fetchone()
+    conn.close()
+    
+    if result and result[0]:
+        current_reminder = datetime.strptime(result[0], '%Y-%m-%d %H:%M:%S')
+        
+        # Рассчитываем новое время напоминания
+        if snooze_value == "tomorrow":
+            # Отложить на завтра (то же время)
+            new_reminder = current_reminder + timedelta(days=1)
+        else:
+            # Отложить на указанное количество минут от ТЕКУЩЕГО времени напоминания
+            minutes = int(snooze_value)
+            new_reminder = current_reminder + timedelta(minutes=minutes)
+        
+        # Обновляем время напоминания
+        set_reminder(task_id, new_reminder)
+        logger.info(f"Напоминание отложено с {current_reminder} на {new_reminder}")
+    
+    # Возвращаемся к списку напоминаний
+    await show_reminders_menu(update, context)
+
+async def send_reminder_notification(context):
+    """Отправляет уведомления о напоминаниях"""
+    logger.info("Запущена проверка напоминаний")
+    due_tasks = check_due_reminders()
+    logger.info(f"Проверка напоминаний: найдено {len(due_tasks)} задач")
+    
+    if len(due_tasks) > 0:
+        logger.info(f"Найдены задачи для напоминания: {due_tasks}")
+    
+    for task_id, user_id, text, done, reminder_time in due_tasks:
+        # Создаем клавиатуру для напоминания
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    text="✅ Выполнено",
+                    callback_data=f"toggle_{task_id}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⏰ Отложить на 30 мин",
+                    callback_data=f"snooze_reminder_{task_id}_30"
+                )
+            ]
+        ]
+        
+        # Отправляем уведомление пользователю
+        try:
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=f"🔔 Напоминание: {text}",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            logger.info(f"Отправлено напоминание пользователю {user_id} о задаче {task_id}")
+            
+            # Сбрасываем напоминание, чтобы оно не повторялось
+            set_reminder(task_id, None)
+        except Exception as e:
+            logger.error(f"Ошибка при отправке напоминания: {e}")
 
 def extract_categories(text):
     """Извлекает хэштеги (категории) из текста задачи"""
@@ -280,7 +612,7 @@ async def show_categories_menu(update: Update, context: ContextTypes.DEFAULT_TYP
     
     # Собираем все категории из задач
     categories = {}
-    for task_id, text, done, priority in tasks:
+    for task_id, text, done, priority, reminder_time in tasks:
         task_categories = extract_categories(text)
         for category in task_categories:
             if category in categories:
@@ -381,7 +713,7 @@ async def show_tasks_by_category(update: Update, context: ContextTypes.DEFAULT_T
     
     # Фильтруем задачи по категории
     found = False
-    for task_id, text, done, priority in tasks:
+    for task_id, text, done, priority, reminder_time in tasks:
         if f"#{category}" in text:
             found = True
             # Формируем статус задачи
@@ -447,7 +779,7 @@ async def show_priority_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
         1: "🔵"  # Низкий
     }
     
-    for i, (task_id, text, done, priority) in enumerate(tasks, 1):
+    for i, (task_id, text, done, priority, reminder_time) in enumerate(tasks, 1):
         # Сокращаем текст, если он слишком длинный
         short_text = text[:30] + "..." if len(text) > 30 else text
         
@@ -654,7 +986,7 @@ async def task_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Иначе снимаем отметки со всех
         new_status = 1 if has_incomplete else 0
         
-        for task_id, _, _, _ in tasks:  # Добавлен еще один элемент для priority
+        for task_id, _, _, _, _ in tasks:
             toggle_task_status_db(task_id, new_status)
         
         await query.answer("Статус всех задач изменен")
@@ -671,13 +1003,28 @@ async def task_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_categories_menu(update, context)
         return
     
+    if data == "reminder_mode":
+        # Переходим в режим управления напоминаниями
+        await show_reminders_menu(update, context)
+        return
+    
+    if data.startswith("reminder_options_"):
+        # Показываем опции для напоминания
+        await show_reminder_options(update, context)
+        return
+    
+    if data.startswith("delete_reminder_"):
+        # Удаляем напоминание
+        await delete_reminder(update, context)
+        return
+    
+    if data.startswith("snooze_reminder_"):
+        # Откладываем напоминание
+        await snooze_reminder(update, context)
+        return
+    
     if data.startswith("filter_category_"):
-        # Сохраняем информацию о текущей категории
-        category = data.split('_')[2]
-        context.user_data['current_view'] = {
-            'type': 'category',
-            'category': category
-        }
+        # Показываем задачи выбранной категории
         await show_tasks_by_category(update, context)
         return
     
@@ -830,38 +1177,79 @@ menu_filter = (
     filters.Regex(r"^🧹 Удалить выполненные$")
 ) & ~filters.COMMAND
 
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Отправляет сообщение с помощью при команде /help"""
+    await update.message.reply_text(
+        "Список доступных команд:\n"
+        "/start - Начать/перезапустить работу с ботом\n"
+        "/help - Показать справку\n"
+        "/list - Показать список задач\n\n"
+        "Для добавления задачи просто напишите её текст.\n"
+        "Для добавления напоминания используйте @время (например: Позвонить @18:00)\n"
+        "Для категоризации используйте #категория (например: Купить молоко #покупки)"
+    )
+
+async def test_notification(context):
+    """Тестовое напоминание"""
+    logger.info("Выполняется тестовое напоминание")
+    try:
+        admin_id = context.bot_data.get("admin_id", context.bot.id)
+        await context.bot.send_message(
+            chat_id=admin_id,
+            text="🔔 Тестовое напоминание работает!"
+        )
+        logger.info("Тестовое напоминание отправлено")
+    except Exception as e:
+        logger.error(f"Ошибка при отправке тестового напоминания: {e}")
+
 def main():
-    # 1. Инициализация базы данных
+    # 1. Создание бота и диспетчера
+    app = Application.builder().token(TOKEN).build()
+    
+    # 2. Инициализация базы данных
     init_db()
-
-    # 2. Создание приложения Telegram-бота
-    app = ApplicationBuilder().token(TOKEN).build()
-
+    
     # 3. Добавление ConversationHandler для добавления задач
     conv_handler = ConversationHandler(
-    entry_points=[
-        CommandHandler("add", add)
-    ],
-    states={
-        ADDING_TASK: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_task)]
-    },
-    fallbacks=[]
-)
-    # 4. Добавление всех обработчиков команд
-    app.add_handler(conv_handler)
+        entry_points=[
+            CommandHandler("add", add)
+        ],
+        states={
+            ADDING_TASK: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_task)]
+        },
+        fallbacks=[]
+    )
+    
+    # 4. Добавление обработчиков
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("list", list_tasks))
+    
+    # Обработчик для кнопок в списке задач
     app.add_handler(CallbackQueryHandler(task_action))
+    
+    # Обработчик для добавления задач
+    app.add_handler(conv_handler)
+    
+    # Обработчик для текстовых сообщений (добавление задач)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & ~menu_filter, add_task_from_text))
+    
+    # Обработчик для кнопок главного меню
     app.add_handler(MessageHandler(menu_filter, main_menu_handler))
-    # Добавьте этот обработчик последним
-    app.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND & ~menu_filter,
-        add_task_from_text
-    ))
+    
+    # Добавляем планировщик для проверки напоминаний каждую минуту
+    job_queue = app.job_queue
+    
+    # Тестовое напоминание сразу после запуска
+    job_queue.run_once(test_notification, 10)
+    
+    # Проверка напоминаний каждые 30 секунд для более быстрой реакции
+    job_queue.run_repeating(send_reminder_notification, interval=30, first=5)
+    
+    logger.info("Планировщик напоминаний запущен")
 
-    # 6. Запуск бота
+    # 5. Запуск бота
     print("Бот запущен! Данные сохраняются в tasks.db.")
     app.run_polling()
-
 if __name__ == "__main__":
     main()
