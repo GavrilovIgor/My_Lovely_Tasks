@@ -160,6 +160,8 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if text == "➕ Добавить задачу":
             return await add(update, context)
         elif text == "📋 Мои задачи":
+            # Добавляем логирование для отладки
+            logger.info(f"Нажата кнопка 'Мои задачи' пользователем {update.effective_user.id}")
             await list_tasks(update, context)
             return ConversationHandler.END
         elif text == "🗑 Удалить задачу":  # Добавлено!
@@ -171,7 +173,9 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await list_tasks(update, context)
             return ConversationHandler.END
     except Exception as e:
-        logger.error(f"Ошибка: {e}")
+        logger.error(f"Ошибка в main_menu_handler: {e}")
+        # Отправляем сообщение об ошибке пользователю
+        await update.message.reply_text("Произошла ошибка. Попробуйте еще раз.")
         return ConversationHandler.END
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -342,24 +346,8 @@ async def set_task_priority(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Обновляем приоритет в базе данных
     update_task_priority(task_id, priority)
     
-    # Показываем сообщение об успешном обновлении
-    priority_names = {
-        3: "высокий 🔴",
-        2: "средний 🟡",
-        1: "низкий 🔵"
-    }
-    
-    await query.edit_message_text(
-        text=f"✅ Приоритет задачи изменен на {priority_names[priority]}",
-        reply_markup=InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton(
-                    text="↩️ Вернуться к списку задач",
-                    callback_data="back_to_list"
-                )
-            ]
-        ])
-    )
+    # Сразу возвращаемся к списку задач без промежуточного сообщения
+    await list_tasks(update, context)
 
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Вводите задачи с новой строки или через точку с запятой (например: Задача 1\nЗадача 2\n или\nЗадача 1; Задача 2)")
@@ -395,9 +383,6 @@ async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     for task_text in tasks_list:
         add_task_db(user_id, task_text)
-        added_count += 1
-    
-    await update.message.reply_text("✅ Задачи добавлены!", reply_markup=get_main_keyboard())
     
     # Сразу показываем список задач
     await list_tasks(update, context)
@@ -408,21 +393,44 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     tasks = get_tasks_db(user_id, only_open=False)
     
+    # Создаем клавиатуру заранее, чтобы проверить ее
+    keyboard_markup = get_task_list_markup(user_id)
+    
     if not tasks:
-        await update.message.reply_text("У вас пока нет задач 🙂")
+        if update.callback_query:
+            await update.callback_query.answer("У вас пока нет задач 🙂")
+        else:
+            await update.message.reply_text("У вас пока нет задач 🙂")
         return
 
-    # Убираем текст и оставляем только кнопки
-    if update.callback_query:
-        await update.callback_query.edit_message_text(
-            text="📋 Мои задачи:",  # Минимальный текст 
-            reply_markup=get_task_list_markup(user_id)
-        )
-    else:
-        await update.message.reply_text(
-            "📋 Мои задачи:",  # Минимальный текст 
-            reply_markup=get_task_list_markup(user_id)
-        )
+    try:
+        if update.callback_query:
+            # Для обработки нажатий на inline-кнопки
+            await update.callback_query.edit_message_text(
+                text="Ваши задачи:",  # Минимальный текст
+                reply_markup=keyboard_markup
+            )
+        else:
+            # Для обработки нажатий на кнопки клавиатуры
+            await update.message.reply_text(
+                text="Ваши задачи:",  # Минимальный текст
+                reply_markup=keyboard_markup
+            )
+    except Exception as e:
+        logger.error(f"Ошибка при отображении списка задач: {e}")
+        
+        # Отправляем новое сообщение вместо редактирования
+        try:
+            chat_id = update.effective_chat.id
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="Ваши задачи:",
+                reply_markup=keyboard_markup
+            )
+        except Exception as e2:
+            logger.error(f"Повторная ошибка: {e2}")
+            if update.message:
+                await update.message.reply_text("Не удалось загрузить список задач. Попробуйте еще раз.")
 
 def toggle_all_tasks_db(user_id, set_done: bool):
     conn = None
@@ -532,17 +540,12 @@ async def add_task_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     # Разделяем по ; или по переводу строки
     tasks_list = [task.strip() for task in re.split(r';|\n', text) if task.strip()]
-    added_count = 0
     for task_text in tasks_list:
         add_task_db(user_id, task_text)
-        added_count += 1
-    await update.message.reply_text(
-        "✅ Задачи добавлены!" if added_count > 1 else f"✅ Задача добавлена: {tasks_list[0]}",
-        reply_markup=get_main_keyboard()
-    )
+    
     logger.info(f"Добавлены задачи через универсальный обработчик: user_id={user_id}, tasks={tasks_list}")
     
-    # Сразу показываем список задач
+    # Сразу показываем список задач (только один раз)
     await list_tasks(update, context)
 
 import re
@@ -605,7 +608,7 @@ async def delete_tasks_by_numbers(update: Update, context: ContextTypes.DEFAULT_
 
     if not to_delete:
         await update.message.reply_text(
-            "Нет подходящих задач для удаления. Введите номера через запятую или диапазон, например: 1,3,5-7",
+            "Нет подходящих задач для удаления",
             reply_markup=get_main_keyboard()
         )
         return ConversationHandler.END
