@@ -84,8 +84,8 @@ def get_tasks_db(user_id, only_open=False):
 def get_main_keyboard():
     return ReplyKeyboardMarkup(
         [
-            ["➕ Добавить задачу", "📋 Мои задачи"],
-            ["🗑 Удалить задачу", "🧹 Удалить выполненные"]
+            ["📋 Мои задачи"],
+            ["🧹 Удалить выполненные"]
         ], 
         resize_keyboard=True
     )
@@ -220,7 +220,7 @@ def get_task_list_markup(user_id):
     # Добавляем кнопку для управления приоритетами
     keyboard.append([
         InlineKeyboardButton(
-            text="🔄 Определить приоритет",
+            text="🔝 Определить приоритет",
             callback_data="priority_mode"
         )
     ])
@@ -232,17 +232,17 @@ def get_task_list_markup(user_id):
         1: "🔵"  # Низкий
     }
 
-    for i, (task_id, text, done, priority) in enumerate(tasks, 1):
+    for task_id, text, done, priority in tasks:
         # Формируем статус задачи
         status = "✅" if done else "☐"
         
         # Формируем текст задачи с новой структурой
-        task_text = f"{status} {i} | "
+        task_text = f"{status} "
         
         # Добавляем приоритет только если он установлен (не 0)
         if priority > 0:
             priority_icon = priority_emoji.get(priority, "")
-            task_text += f"{priority_icon} | "
+            task_text += f"{priority_icon} "
         
         # Добавляем текст задачи
         task_text += text
@@ -366,7 +366,7 @@ async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     
     # Список текстов кнопок, которые не должны добавляться как задачи
-    menu_buttons = ["➕ Добавить задачу", "📋 Мои задачи", "🗑 Удалить задачу", "🧹 Удалить выполненные", "❌ Отмена"]
+    menu_buttons = ["📋 Мои задачи", "🧹 Удалить выполненные", "❌ Отмена"]
     
     if not input_text:
         await update.message.reply_text("Пустой ввод. Попробуйте снова.")
@@ -529,7 +529,7 @@ async def add_task_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
     text = update.message.text.strip()
     
     # Список текстов кнопок, которые не должны добавляться как задачи
-    menu_buttons = ["➕ Добавить задачу", "📋 Мои задачи", "🗑 Удалить задачу", "🧹 Удалить выполненные", "❌ Отмена"]
+    menu_buttons = ["📋 Мои задачи", "🧹 Удалить выполненные", "❌ Отмена"]
     
     if not text or text.startswith('/'):
         return  # Игнорируем пустые сообщения и команды
@@ -577,7 +577,7 @@ async def delete_tasks_by_numbers(update: Update, context: ContextTypes.DEFAULT_
         return ConversationHandler.END
     
     # Список текстов кнопок, которые не должны обрабатываться как номера задач
-    menu_buttons = ["➕ Добавить задачу", "📋 Мои задачи", "🗑 Удалить задачу", "🧹 Удалить выполненные", "❌ Отмена"]
+    menu_buttons = ["📋 Мои задачи", "🧹 Удалить выполненные", "❌ Отмена"]
     
     if input_text in menu_buttons:
         # Если это кнопка меню, обрабатываем её как нажатие кнопки
@@ -621,9 +621,7 @@ async def delete_tasks_by_numbers(update: Update, context: ContextTypes.DEFAULT_
     return ConversationHandler.END
 
 menu_filter = (
-    filters.Regex(r"^➕ Добавить задачу$") |
     filters.Regex(r"^📋 Мои задачи$") |
-    filters.Regex(r"^🗑 Удалить задачу$") |
     filters.Regex(r"^🧹 Удалить выполненные$")
 ) & ~filters.COMMAND
 
@@ -637,17 +635,13 @@ def main():
     # 3. Добавление ConversationHandler для добавления задач
     conv_handler = ConversationHandler(
     entry_points=[
-        CommandHandler("add", add),
-        MessageHandler(filters.Regex(r"^➕ Добавить задачу$"), add),
-        MessageHandler(filters.Regex(r"^🗑 Удалить задачу$"), ask_delete_tasks)
+        CommandHandler("add", add)
     ],
     states={
-        ADDING_TASK: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_task)],
-        DELETING_TASKS: [MessageHandler(filters.TEXT & ~filters.COMMAND, delete_tasks_by_numbers)]
+        ADDING_TASK: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_task)]
     },
     fallbacks=[]
 )
-
     # 4. Добавление всех обработчиков команд
     app.add_handler(conv_handler)
     app.add_handler(CommandHandler("start", start))
