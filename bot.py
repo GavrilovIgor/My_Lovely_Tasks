@@ -204,24 +204,27 @@ def get_task_list_markup(user_id):
     tasks = get_tasks_db(user_id, only_open=False)
     keyboard = []
 
-    # Статистика
+    # Статистика с индикатором кликабельности
     total = len(tasks)
     done_count = sum(1 for task in tasks if task[2])
     keyboard.append([
         InlineKeyboardButton(
-            text=f"✅ {done_count}/{total} выполнено",
+            text=f"🔄 [ {done_count}/{total} выполнено ]",
             callback_data="toggle_all"
         )
     ])
+    
+    # Кнопка приоритетов с индикатором кликабельности
     keyboard.append([
         InlineKeyboardButton(
-            text="🔝 Определить приоритет",
+            text=f"▶️ [ Определить приоритет ]",
             callback_data="priority_mode"
         )
     ])
     
+    # Улучшенный разделитель
     keyboard.append([
-        InlineKeyboardButton(text="▬▬▬▬▬▬▬▬▬▬", callback_data="divider")
+        InlineKeyboardButton(text="▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂", callback_data="divider")
     ])
 
     # Словарь эмодзи для приоритетов
