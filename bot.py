@@ -299,7 +299,7 @@ async def show_categories_menu(update: Update, context: ContextTypes.DEFAULT_TYP
         ])
         keyboard.append([
             InlineKeyboardButton(
-                text="Добавьте #категорию в тексте задачи",
+                text="Напишите в названии новой задачи категорию после знака #",
                 callback_data="divider"
             )
         ])
@@ -399,7 +399,7 @@ async def show_tasks_by_category(update: Update, context: ContextTypes.DEFAULT_T
     
     keyboard.append([
         InlineKeyboardButton(
-            text="↩️ К списку категорий",
+            text="↩️ Выбрать другую категорию",
             callback_data="category_mode"
         )
     ])
@@ -419,15 +419,28 @@ async def show_priority_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
     keyboard = []
     keyboard.append([
         InlineKeyboardButton(
-            text="Выберите задачу для изменения приоритета:",
+            text="Какой задаче задать приоритет?",
             callback_data="divider"
         )
     ])
     
+    # Словарь эмодзи для приоритетов
+    priority_emoji = {
+        3: "🔴", # Высокий
+        2: "🟡", # Средний
+        1: "🔵"  # Низкий
+    }
+    
     for i, (task_id, text, done, priority) in enumerate(tasks, 1):
         # Сокращаем текст, если он слишком длинный
         short_text = text[:30] + "..." if len(text) > 30 else text
-        task_text = f"{i}. {short_text}"
+        
+        # Добавляем текущий приоритет в отображение
+        priority_icon = ""
+        if priority > 0:
+            priority_icon = f"{priority_emoji.get(priority, '')} "
+        
+        task_text = f"{i}. {priority_icon}{short_text}"
         
         keyboard.append([
             InlineKeyboardButton(
