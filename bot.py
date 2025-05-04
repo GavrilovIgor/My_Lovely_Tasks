@@ -38,27 +38,45 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
             text TEXT,
-            done INTEGER DEFAULT 0
+            done INTEGER DEFAULT 0,
+            priority INTEGER DEFAULT 1
         )
     """)
+    
+    # Проверяем, существует ли колонка priority
+    c.execute("PRAGMA table_info(tasks)")
+    columns = [column[1] for column in c.fetchall()]
+    
+    # Если колонки priority нет, добавляем ее
+    if 'priority' not in columns:
+        c.execute("ALTER TABLE tasks ADD COLUMN priority INTEGER DEFAULT 1")
+        print("Добавлена колонка priority в таблицу tasks")
+    
     conn.commit()
     conn.close()
 
-def add_task_db(user_id, text):
+def add_task_db(user_id, text, priority=1):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("INSERT INTO tasks (user_id, text, done) VALUES (?, ?, 0)", (user_id, text))
+    c.execute("INSERT INTO tasks (user_id, text, done, priority) VALUES (?, ?, 0, ?)", (user_id, text, priority))
     conn.commit()
     conn.close()
     logger.info(f"Добавлена задача: user_id={user_id}, text='{text}'")
+
+def update_task_priority(task_id, priority):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("UPDATE tasks SET priority = ? WHERE id = ?", (priority, task_id))
+    conn.commit()
+    conn.close()
 
 def get_tasks_db(user_id, only_open=False):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     if only_open:
-        c.execute("SELECT id, text, done FROM tasks WHERE user_id = ? AND done = 0 ORDER BY id", (user_id,))
+        c.execute("SELECT id, text, done, priority FROM tasks WHERE user_id = ? AND done = 0 ORDER BY priority DESC, id", (user_id,))
     else:
-        c.execute("SELECT id, text, done FROM tasks WHERE user_id = ? ORDER BY id", (user_id,))
+        c.execute("SELECT id, text, done, priority FROM tasks WHERE user_id = ? ORDER BY priority DESC, id", (user_id,))
     tasks = c.fetchall()
     conn.close()
     return tasks
@@ -92,6 +110,21 @@ def toggle_task_db(task_id, user_id):
     finally:
         if conn:
             conn.close()
+
+def toggle_task_status_db(task_id, new_status=None):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    
+    if new_status is not None:
+        # Устанавливаем конкретный статус
+        c.execute("UPDATE tasks SET done = ? WHERE id = ?", (new_status, task_id))
+    else:
+        # Переключаем текущий статус
+        c.execute("UPDATE tasks SET done = NOT done WHERE id = ?", (task_id,))
+    
+    conn.commit()
+    conn.close()
+    logger.info(f"Изменен статус задачи id={task_id}")
 
 def delete_completed_tasks():
     conn = sqlite3.connect(DB_PATH)
@@ -180,12 +213,30 @@ def get_task_list_markup(user_id):
         InlineKeyboardButton(text="▬▬▬▬▬▬▬▬▬▬", callback_data="divider")
     ])
 
-    for i, (task_id, text, done) in enumerate(tasks, 1):
+    # Добавляем кнопку для управления приоритетами
+    keyboard.append([
+        InlineKeyboardButton(
+            text="🔄 Изменить приоритет",
+            callback_data="priority_mode"
+        )
+    ])
+    
+    # Словарь эмодзи для приоритетов (заменили зеленый на синий)
+    priority_emoji = {
+        3: "🔴", # Высокий
+        2: "🟡", # Средний
+        1: "🔵"  # Низкий (синий вместо зеленого)
+    }
+
+    for i, (task_id, text, done, priority) in enumerate(tasks, 1):
+        # Добавляем эмодзи приоритета
+        priority_icon = priority_emoji.get(priority, "🔵")
+        
         if done:
-            # Добавляем галочки в начале и в конце вместо перечеркивания
-            task_text = f"{i}. ✅ {text}"
+            task_text = f"{priority_icon} ✅ {text}"
         else:
-            task_text = f"{i}. ☐ {text}"
+            task_text = f"{priority_icon} ☐ {text}"
+        
         keyboard.append([
             InlineKeyboardButton(
                 text=task_text,
@@ -194,6 +245,115 @@ def get_task_list_markup(user_id):
         ])
 
     return InlineKeyboardMarkup(keyboard) if keyboard else None
+
+async def show_priority_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    tasks = get_tasks_db(user_id, only_open=False)
+    
+    keyboard = []
+    keyboard.append([
+        InlineKeyboardButton(
+            text="Выберите задачу для изменения приоритета:",
+            callback_data="divider"
+        )
+    ])
+    
+    for i, (task_id, text, done, priority) in enumerate(tasks, 1):
+        # Сокращаем текст, если он слишком длинный
+        short_text = text[:30] + "..." if len(text) > 30 else text
+        task_text = f"{i}. {short_text}"
+        
+        keyboard.append([
+            InlineKeyboardButton(
+                text=task_text,
+                callback_data=f"set_priority_{task_id}"
+            )
+        ])
+    
+    keyboard.append([
+        InlineKeyboardButton(
+            text="↩️ Назад",
+            callback_data="back_to_list"
+        )
+    ])
+    
+    await query.edit_message_text(
+        text="🔄 Режим изменения приоритетов",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def show_priority_options(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    # Извлекаем ID задачи из callback_data
+    task_id = int(query.data.split('_')[2])
+    
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                text="🔴 Высокий",
+                callback_data=f"priority_{task_id}_3"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="🟡 Средний",
+                callback_data=f"priority_{task_id}_2"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="🔵 Низкий",
+                callback_data=f"priority_{task_id}_1"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="↩️ Назад",
+                callback_data="priority_mode"
+            )
+        ]
+    ]
+    
+    await query.edit_message_text(
+        text="Выберите приоритет для задачи:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def set_task_priority(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    # Извлекаем ID задачи и приоритет из callback_data
+    parts = query.data.split('_')
+    task_id = int(parts[1])
+    priority = int(parts[2])
+    
+    # Обновляем приоритет в базе данных
+    update_task_priority(task_id, priority)
+    
+    # Показываем сообщение об успешном обновлении
+    priority_names = {
+        3: "высокий 🔴",
+        2: "средний 🟡",
+        1: "низкий 🔵"
+    }
+    
+    await query.edit_message_text(
+        text=f"✅ Приоритет задачи изменен на {priority_names[priority]}",
+        reply_markup=InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(
+                    text="↩️ Вернуться к списку задач",
+                    callback_data="back_to_list"
+                )
+            ]
+        ])
+    )
 
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Вводите задачи с новой строки или через точку с запятой (например: Задача 1\nЗадача 2\n или\nЗадача 1; Задача 2)")
@@ -277,34 +437,58 @@ def toggle_all_tasks_db(user_id, set_done: bool):
 
 async def task_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    user_id = query.from_user.id
     data = query.data
-
-    # Массовое переключение
+    user_id = query.from_user.id
+    
+    if data == "divider":
+        # Игнорируем нажатия на разделитель
+        await query.answer()
+        return
+    
     if data == "toggle_all":
-        tasks = get_tasks_db(user_id, only_open=False)  # Явно указываем параметр
+        tasks = get_tasks_db(user_id, only_open=False)
         if not tasks:
             await query.answer("Нет задач для изменения")
             return
-        all_done = all(task[2] for task in tasks)
-        new_status = not all_done
-        try:
-            toggle_all_tasks_db(user_id, new_status)
-            await query.answer(f"Все задачи {'выполнены' if new_status else 'сброшены'}!")
-            await list_tasks(update, context)
-        except Exception as e:
-            await query.answer("Ошибка обновления. Попробуйте снова.")
-            logger.error(f"Ошибка toggle_all: {e}")
+        
+        # Проверяем, есть ли невыполненные задачи
+        has_incomplete = any(not task[2] for task in tasks)
+        
+        # Если есть невыполненные, отмечаем все как выполненные
+        # Иначе снимаем отметки со всех
+        new_status = 1 if has_incomplete else 0
+        
+        for task_id, _, _, _ in tasks:  # Добавлен еще один элемент для priority
+            toggle_task_status_db(task_id, new_status)
+        
+        await query.answer("Статус всех задач изменен")
+        await list_tasks(update, context)
         return
-
-    # Переключение одной задачи
-    elif data.startswith("toggle_"):
+    
+    if data == "priority_mode":
+        # Переходим в режим изменения приоритетов
+        await show_priority_menu(update, context)
+        return
+    
+    if data.startswith("set_priority_"):
+        # Показываем опции приоритета для выбранной задачи
+        await show_priority_options(update, context)
+        return
+    
+    if data.startswith("priority_"):
+        # Устанавливаем приоритет для задачи
+        await set_task_priority(update, context)
+        return
+    
+    if data == "back_to_list":
+        # Возвращаемся к списку задач
+        await list_tasks(update, context)
+        return
+    
+    if data.startswith("toggle_"):
         task_id = int(data.split("_")[1])
-        success = toggle_task_db(task_id, user_id)
-        if success:
-            await query.answer("✅ Статус изменён")
-        else:
-            await query.answer("❌ Задача не найдена")
+        toggle_task_status_db(task_id)
+        await query.answer("Статус задачи изменен")
         await list_tasks(update, context)
         return
 
