@@ -337,9 +337,25 @@ async def show_tasks_by_category(update: Update, context: ContextTypes.DEFAULT_T
     query = update.callback_query
     await query.answer()
     
-    # Извлекаем категорию из callback_data
-    category = query.data.split('_')[2]
+    # Извлекаем категорию из callback_data или из сохраненного контекста
+    if hasattr(query, 'data') and query.data.startswith("filter_category_"):
+        category = query.data.split('_')[2]
+    elif 'current_view' in context.user_data and context.user_data['current_view']['type'] == 'category':
+        category = context.user_data['current_view']['category']
+    else:
+        # Если категория не определена, возвращаемся к списку категорий
+        await show_categories_menu(update, context)
+        return
+    
     user_id = query.from_user.id
+    
+    # Сохраняем текущую категорию в контексте
+    if not hasattr(context, 'user_data'):
+        context.user_data = {}
+    context.user_data['current_view'] = {
+        'type': 'category',
+        'category': category
+    }
     
     tasks = get_tasks_db(user_id, only_open=False)
     
@@ -656,7 +672,12 @@ async def task_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     if data.startswith("filter_category_"):
-        # Показываем задачи выбранной категории
+        # Сохраняем информацию о текущей категории
+        category = data.split('_')[2]
+        context.user_data['current_view'] = {
+            'type': 'category',
+            'category': category
+        }
         await show_tasks_by_category(update, context)
         return
     
@@ -679,7 +700,15 @@ async def task_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         task_id = int(data.split("_")[1])
         toggle_task_status_db(task_id)
         await query.answer("Статус задачи изменен")
-        await list_tasks(update, context)
+        
+        # Проверяем, находимся ли мы в режиме просмотра категории
+        if 'current_view' in context.user_data and context.user_data['current_view']['type'] == 'category':
+            category = context.user_data['current_view']['category']
+            # Обновляем список задач в текущей категории
+            await show_tasks_by_category(update, context)
+        else:
+            # Иначе показываем общий список задач
+            await list_tasks(update, context)
         return
 
     # Игнорируем другие callback_data
