@@ -39,7 +39,7 @@ def init_db():
             user_id INTEGER,
             text TEXT,
             done INTEGER DEFAULT 0,
-            priority INTEGER DEFAULT 1
+            priority INTEGER DEFAULT 0
         )
     """)
     
@@ -49,13 +49,13 @@ def init_db():
     
     # Если колонки priority нет, добавляем ее
     if 'priority' not in columns:
-        c.execute("ALTER TABLE tasks ADD COLUMN priority INTEGER DEFAULT 1")
+        c.execute("ALTER TABLE tasks ADD COLUMN priority INTEGER DEFAULT 0")
         print("Добавлена колонка priority в таблицу tasks")
     
     conn.commit()
     conn.close()
 
-def add_task_db(user_id, text, priority=1):
+def add_task_db(user_id, text, priority=0):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("INSERT INTO tasks (user_id, text, done, priority) VALUES (?, ?, 0, ?)", (user_id, text, priority))
@@ -216,26 +216,32 @@ def get_task_list_markup(user_id):
     # Добавляем кнопку для управления приоритетами
     keyboard.append([
         InlineKeyboardButton(
-            text="🔄 Изменить приоритет",
+            text="🔄 Определить приоритет",
             callback_data="priority_mode"
         )
     ])
     
-    # Словарь эмодзи для приоритетов (заменили зеленый на синий)
+    # Словарь эмодзи для приоритетов
     priority_emoji = {
         3: "🔴", # Высокий
         2: "🟡", # Средний
-        1: "🔵"  # Низкий (синий вместо зеленого)
+        1: "🔵"  # Низкий
     }
 
     for i, (task_id, text, done, priority) in enumerate(tasks, 1):
-        # Добавляем эмодзи приоритета
-        priority_icon = priority_emoji.get(priority, "🔵")
+        # Формируем статус задачи
+        status = "✅" if done else "☐"
         
-        if done:
-            task_text = f"{priority_icon} ✅ {text}"
-        else:
-            task_text = f"{priority_icon} ☐ {text}"
+        # Формируем текст задачи с новой структурой
+        task_text = f"{status} {i} | "
+        
+        # Добавляем приоритет только если он установлен (не 0)
+        if priority > 0:
+            priority_icon = priority_emoji.get(priority, "")
+            task_text += f"{priority_icon} | "
+        
+        # Добавляем текст задачи
+        task_text += text
         
         keyboard.append([
             InlineKeyboardButton(
