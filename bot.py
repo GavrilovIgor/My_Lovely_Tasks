@@ -222,6 +222,14 @@ def get_task_list_markup(user_id):
         )
     ])
     
+    # Кнопка категорий
+    keyboard.append([
+        InlineKeyboardButton(
+            text=f"📂 [ Категории ]",
+            callback_data="category_mode"
+        )
+    ])
+    
     # Улучшенный разделитель
     keyboard.append([
         InlineKeyboardButton(text="▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂", callback_data="divider")
@@ -246,7 +254,7 @@ def get_task_list_markup(user_id):
             priority_icon = priority_emoji.get(priority, "")
             task_text += f"{priority_icon} "
         
-        # Добавляем текст задачи
+        # Добавляем текст задачи (хэштеги будут видны в тексте)
         task_text += text
         
         keyboard.append([
@@ -257,6 +265,149 @@ def get_task_list_markup(user_id):
         ])
 
     return InlineKeyboardMarkup(keyboard) if keyboard else None
+
+def extract_categories(text):
+    """Извлекает хэштеги (категории) из текста задачи"""
+    hashtags = re.findall(r'#(\w+)', text)
+    return hashtags
+
+async def show_categories_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    tasks = get_tasks_db(user_id, only_open=False)
+    
+    # Собираем все категории из задач
+    categories = {}
+    for task_id, text, done, priority in tasks:
+        task_categories = extract_categories(text)
+        for category in task_categories:
+            if category in categories:
+                categories[category] += 1
+            else:
+                categories[category] = 1
+    
+    keyboard = []
+    
+    if not categories:
+        keyboard.append([
+            InlineKeyboardButton(
+                text="У вас пока нет категорий",
+                callback_data="divider"
+            )
+        ])
+        keyboard.append([
+            InlineKeyboardButton(
+                text="Добавьте #категорию в тексте задачи",
+                callback_data="divider"
+            )
+        ])
+    else:
+        keyboard.append([
+            InlineKeyboardButton(
+                text="Выберите категорию:",
+                callback_data="divider"
+            )
+        ])
+        
+        # Сортируем категории по количеству задач
+        sorted_categories = sorted(categories.items(), key=lambda x: x[1], reverse=True)
+        
+        for category, count in sorted_categories:
+            keyboard.append([
+                InlineKeyboardButton(
+                    text=f"#{category} ({count})",
+                    callback_data=f"filter_category_{category}"
+                )
+            ])
+    
+    keyboard.append([
+        InlineKeyboardButton(
+            text="↩️ Все задачи",
+            callback_data="back_to_list"
+        )
+    ])
+    
+    await query.edit_message_text(
+        text="Категории задач:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+async def show_tasks_by_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    # Извлекаем категорию из callback_data
+    category = query.data.split('_')[2]
+    user_id = query.from_user.id
+    
+    tasks = get_tasks_db(user_id, only_open=False)
+    
+    keyboard = []
+    
+    keyboard.append([
+        InlineKeyboardButton(
+            text=f"Задачи в категории #{category}:",
+            callback_data="divider"
+        )
+    ])
+    
+    keyboard.append([
+        InlineKeyboardButton(text="▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂", callback_data="divider")
+    ])
+    
+    # Словарь эмодзи для приоритетов
+    priority_emoji = {
+        3: "🔴", # Высокий
+        2: "🟡", # Средний
+        1: "🔵"  # Низкий
+    }
+    
+    # Фильтруем задачи по категории
+    found = False
+    for task_id, text, done, priority in tasks:
+        if f"#{category}" in text:
+            found = True
+            # Формируем статус задачи
+            status = "✅" if done else "☐"
+            
+            # Формируем текст задачи
+            task_text = f"{status} "
+            
+            # Добавляем приоритет только если он установлен (не 0)
+            if priority > 0:
+                priority_icon = priority_emoji.get(priority, "")
+                task_text += f"{priority_icon} "
+            
+            # Добавляем текст задачи
+            task_text += text
+            
+            keyboard.append([
+                InlineKeyboardButton(
+                    text=task_text,
+                    callback_data=f"toggle_{task_id}",
+                )
+            ])
+    
+    if not found:
+        keyboard.append([
+            InlineKeyboardButton(
+                text="В этой категории нет задач",
+                callback_data="divider"
+            )
+        ])
+    
+    keyboard.append([
+        InlineKeyboardButton(
+            text="↩️ К списку категорий",
+            callback_data="category_mode"
+        )
+    ])
+    
+    await query.edit_message_text(
+        text=f"Категория #{category}:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 async def show_priority_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -484,6 +635,16 @@ async def task_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "priority_mode":
         # Переходим в режим изменения приоритетов
         await show_priority_menu(update, context)
+        return
+    
+    if data == "category_mode":
+        # Переходим в режим просмотра категорий
+        await show_categories_menu(update, context)
+        return
+    
+    if data.startswith("filter_category_"):
+        # Показываем задачи выбранной категории
+        await show_tasks_by_category(update, context)
         return
     
     if data.startswith("set_priority_"):
