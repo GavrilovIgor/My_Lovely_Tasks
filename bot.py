@@ -217,7 +217,7 @@ def get_task_list_markup(user_id):
     # Кнопка приоритетов с индикатором кликабельности
     keyboard.append([
         InlineKeyboardButton(
-            text=f"▶️ [ Определить приоритет ]",
+            text=f"🔢 [ Определить приоритет ]",
             callback_data="priority_mode"
         )
     ])
@@ -225,7 +225,7 @@ def get_task_list_markup(user_id):
     # Кнопка категорий
     keyboard.append([
         InlineKeyboardButton(
-            text=f"📂 [ Категории ]",
+            text=f"#️⃣ [ Категории ]",
             callback_data="category_mode"
         )
     ])
