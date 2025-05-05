@@ -227,19 +227,30 @@ def check_due_reminders():
     return due_tasks
 
 def toggle_task_status_db(task_id, new_status=None):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    
-    if new_status is not None:
-        # Устанавливаем конкретный статус
-        c.execute("UPDATE tasks SET done = ? WHERE id = ?", (new_status, task_id))
-    else:
-        # Переключаем текущий статус
-        c.execute("UPDATE tasks SET done = NOT done WHERE id = ?", (task_id,))
-    
-    conn.commit()
-    conn.close()
-    logger.info(f"Изменен статус задачи id={task_id}")
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        
+        if new_status is not None:
+            # Устанавливаем конкретный статус
+            c.execute("UPDATE tasks SET done = ? WHERE id = ?", (new_status, task_id))
+        else:
+            # Переключаем текущий статус
+            c.execute("UPDATE tasks SET done = NOT done WHERE id = ?", (task_id,))
+        
+        conn.commit()
+        rows_affected = c.rowcount
+        logger.info(f"Изменен статус задачи id={task_id}, затронуто строк: {rows_affected}")
+        return rows_affected > 0
+    except Exception as e:
+        logger.error(f"Ошибка при изменении статуса задачи {task_id}: {e}")
+        if conn:
+            conn.rollback()
+        return False
+    finally:
+        if conn:
+            conn.close()
 
 def delete_completed_tasks():
     conn = sqlite3.connect(DB_PATH)
@@ -689,7 +700,9 @@ async def show_tasks_by_category(update: Update, context: ContextTypes.DEFAULT_T
         'type': 'category',
         'category': category
     }
-    
+    # Устанавливаем флаг активного просмотра категории
+    context.user_data['active_category_view'] = True
+
     tasks = get_tasks_db(user_id, only_open=False)
     
     keyboard = []
@@ -1040,23 +1053,29 @@ async def task_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     if data == "back_to_list":
+        # Сбрасываем флаг активного просмотра категории
+        if hasattr(context, 'user_data'):   
+            context.user_data['active_category_view'] = False   
         # Возвращаемся к списку задач
         await list_tasks(update, context)
         return
-    
+
     if data.startswith("toggle_"):
         task_id = int(data.split("_")[1])
         toggle_task_status_db(task_id)
-    await query.answer("Статус задачи изменен")
-
+        await query.answer("Статус задачи изменен")
+    
     # Проверяем, находимся ли мы в режиме просмотра категории
-    if hasattr(context, 'user_data') and 'current_view' in context.user_data and context.user_data['current_view']['type'] == 'category':
-        category = context.user_data['current_view']['category']
-        # Обновляем список задач в текущей категории
-        await show_tasks_by_category(update, context)
-    else:
-        # Иначе показываем общий список задач
-        await list_tasks(update, context)
+    if hasattr(context, 'user_data') and 'current_view' in context.user_data and context.user_data['current_view'].get('type') == 'category':
+        # Только если мы действительно просматривали категорию и не вернулись назад
+        if context.user_data.get('active_category_view', False):
+            category = context.user_data['current_view']['category']
+            # Обновляем список задач в текущей категории
+            await show_tasks_by_category(update, context)
+            return
+    
+    # В остальных случаях показываем общий список задач
+    await list_tasks(update, context)
     return
 
 async def ask_delete_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
