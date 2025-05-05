@@ -696,11 +696,11 @@ async def show_tasks_by_category(update: Update, context: ContextTypes.DEFAULT_T
     # Сохраняем текущую категорию в контексте
     if not hasattr(context, 'user_data'):
         context.user_data = {}
-    context.user_data['current_view'] = {
-        'type': 'category',
-        'category': category
-    }
-    # Устанавливаем флаг активного просмотра категории
+        context.user_data['current_view'] = {
+    'type': 'category',
+    'category': category
+}
+# Устанавливаем флаг активного просмотра категории
     context.user_data['active_category_view'] = True
 
     tasks = get_tasks_db(user_id, only_open=False)
@@ -1054,8 +1054,8 @@ async def task_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if data == "back_to_list":
         # Сбрасываем флаг активного просмотра категории
-        if hasattr(context, 'user_data'):   
-            context.user_data['active_category_view'] = False   
+        if hasattr(context, 'user_data'):
+            context.user_data['active_category_view'] = False
         # Возвращаемся к списку задач
         await list_tasks(update, context)
         return
@@ -1067,13 +1067,13 @@ async def task_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Проверяем, находимся ли мы в режиме просмотра категории
     if hasattr(context, 'user_data') and 'current_view' in context.user_data and context.user_data['current_view'].get('type') == 'category':
-        # Только если мы действительно просматривали категорию и не вернулись назад
+    # Только если мы действительно просматривали категорию и не вернулись назад
         if context.user_data.get('active_category_view', False):
             category = context.user_data['current_view']['category']
-            # Обновляем список задач в текущей категории
-            await show_tasks_by_category(update, context)
-            return
-    
+        # Обновляем список задач в текущей категории
+        await show_tasks_by_category(update, context)
+        return
+
     # В остальных случаях показываем общий список задач
     await list_tasks(update, context)
     return
