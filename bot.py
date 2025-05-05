@@ -105,14 +105,14 @@ def get_tasks_db(user_id, only_open=False):
             SELECT id, text, done, priority, reminder_time 
             FROM tasks 
             WHERE user_id = ? AND done = 0 
-            ORDER BY id
+            ORDER BY priority DESC, id
         """, (user_id,))
     else:
         c.execute("""
             SELECT id, text, done, priority, reminder_time 
             FROM tasks 
             WHERE user_id = ? 
-            ORDER BY id
+            ORDER BY priority DESC, id
         """, (user_id,))
     tasks = c.fetchall()
     conn.close()
@@ -1046,20 +1046,17 @@ async def task_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("toggle_"):
         task_id = int(data.split("_")[1])
         toggle_task_status_db(task_id)
-        await query.answer("Статус задачи изменен")
-        
-        # Проверяем, находимся ли мы в режиме просмотра категории
-        if 'current_view' in context.user_data and context.user_data['current_view']['type'] == 'category':
-            category = context.user_data['current_view']['category']
-            # Обновляем список задач в текущей категории
-            await show_tasks_by_category(update, context)
-        else:
-            # Иначе показываем общий список задач
-            await list_tasks(update, context)
-        return
+    await query.answer("Статус задачи изменен")
 
-    # Игнорируем другие callback_data
-    await query.answer()
+    # Проверяем, находимся ли мы в режиме просмотра категории
+    if hasattr(context, 'user_data') and 'current_view' in context.user_data and context.user_data['current_view']['type'] == 'category':
+        category = context.user_data['current_view']['category']
+        # Обновляем список задач в текущей категории
+        await show_tasks_by_category(update, context)
+    else:
+        # Иначе показываем общий список задач
+        await list_tasks(update, context)
+    return
 
 
 async def ask_delete_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
