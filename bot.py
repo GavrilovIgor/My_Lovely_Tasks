@@ -10,7 +10,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
-DB_PATH = "tasks.db"
+DB_PATH = "data/tasks.db"
+os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 ADDING_TASK = 1
 DELETING_TASKS = 2
 
@@ -1057,7 +1058,6 @@ async def task_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Иначе показываем общий список задач
         await list_tasks(update, context)
     return
-
 
 async def ask_delete_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Создаем клавиатуру с кнопкой отмены
