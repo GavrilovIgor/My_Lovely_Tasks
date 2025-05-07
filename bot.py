@@ -312,7 +312,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "- Добавлять задачи (просто напиши мне что нужно сделать!)\n"
         "- Отмечать выполненные (приятное чувство, когда вычёркиваешь дела ✅)\n"
         "- Удалять ненужное (чистота – залог продуктивности! 😊)\n\n"
-        "🚀 Начнём вместе делать твои дела? Используй кнопки меню или просто напиши мне задачу!",
+        "🚀 Начнём вместе делать твои дела? Просто напиши мне задачу!",
         reply_markup=get_main_keyboard()
     )
 
@@ -696,12 +696,15 @@ async def show_tasks_by_category(update: Update, context: ContextTypes.DEFAULT_T
     # Сохраняем текущую категорию в контексте
     if not hasattr(context, 'user_data'):
         context.user_data = {}
-        context.user_data['current_view'] = {
-    'type': 'category',
-    'category': category
-}
-# Устанавливаем флаг активного просмотра категории
+    
+    context.user_data['current_view'] = {
+        'type': 'category',
+        'category': category
+    }
+    # Устанавливаем флаг активного просмотра категории
     context.user_data['active_category_view'] = True
+    # Сбрасываем флаг активного списка задач
+    context.user_data['active_task_list'] = False
 
     tasks = get_tasks_db(user_id, only_open=False)
     
@@ -921,6 +924,12 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     tasks = get_tasks_db(user_id, only_open=False)
     
+    # Устанавливаем флаг активного списка задач
+    if hasattr(context, 'user_data'):
+        context.user_data['active_task_list'] = True
+        # Сбрасываем флаг просмотра категории
+        context.user_data['active_category_view'] = False
+    
     # Создаем клавиатуру заранее, чтобы проверить ее
     keyboard_markup = get_task_list_markup(user_id)
     
@@ -1066,17 +1075,15 @@ async def task_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("Статус задачи изменен")
     
     # Проверяем, находимся ли мы в режиме просмотра категории
-    if hasattr(context, 'user_data') and 'current_view' in context.user_data and context.user_data['current_view'].get('type') == 'category':
-    # Только если мы действительно просматривали категорию и не вернулись назад
-        if context.user_data.get('active_category_view', False):
-            category = context.user_data['current_view']['category']
+    if hasattr(context, 'user_data') and context.user_data.get('active_category_view', False):
         # Обновляем список задач в текущей категории
         await show_tasks_by_category(update, context)
         return
+    else:
+        # В остальных случаях показываем общий список задач
+        await list_tasks(update, context)
+        return
 
-    # В остальных случаях показываем общий список задач
-    await list_tasks(update, context)
-    return
 
 async def ask_delete_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Создаем клавиатуру с кнопкой отмены
