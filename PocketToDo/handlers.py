@@ -243,12 +243,18 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             user_id = update.message.from_user.id
             delete_completed_tasks_for_user(user_id)
             await update.message.reply_text("Выполненные задачи удалены.", reply_markup=get_main_keyboard())
-            await list_tasks(update, context)
+            
+            # Проверяем, находимся ли мы в режиме просмотра категории
+            if hasattr(context, 'user_data') and context.user_data.get('active_category_view', False):
+                # Обновляем список задач в текущей категории
+                await show_tasks_by_category(update, context)
+            else:
+                # В остальных случаях показываем общий список задач
+                await list_tasks(update, context)
+            
             return ConversationHandler.END
     except Exception as e:
-        logger.error(f"Ошибка в main_menu_handler: {e}")
-        # Отправляем сообщение об ошибке пользователю
-        await update.message.reply_text("Произошла ошибка. Попробуйте еще раз.")
+        logger.error(f"Ошибка в обработчике главного меню: {e}")
         return ConversationHandler.END
 
 async def ask_delete_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
