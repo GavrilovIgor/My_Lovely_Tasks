@@ -57,7 +57,15 @@ def init_db() -> None:
 
 def add_task_db(user_id: int, text: str, priority: int = 0) -> int:
     """Добавление новой задачи в БД"""
-    from utils import extract_reminder_time  # Импорт здесь для избежания циклических импортов
+    from utils import extract_reminder_time, extract_priority  # Импорт здесь для избежания циклических импортов
+    
+    # Извлекаем приоритет из текста задачи
+    task_priority, text_without_priority = extract_priority(text)
+    
+    # Если приоритет указан в тексте, используем его, иначе используем переданный параметр
+    if task_priority > 0:
+        priority = task_priority
+        text = text_without_priority
     
     # Извлекаем время напоминания из текста задачи
     reminder_time, clean_text = extract_reminder_time(text)
@@ -73,7 +81,7 @@ def add_task_db(user_id: int, text: str, priority: int = 0) -> int:
                 VALUES (?, ?, 0, ?, ?)
             """, (user_id, clean_text, priority, reminder_str))
             task_id = c.lastrowid
-            logger.info(f"Добавлена задача с напоминанием: id={task_id}, user_id={user_id}, text='{clean_text}', reminder={reminder_str}")
+            logger.info(f"Добавлена задача с напоминанием: id={task_id}, user_id={user_id}, text='{clean_text}', priority={priority}, reminder={reminder_str}")
         else:
             # Если напоминания нет, сохраняем без него
             c.execute("""
@@ -81,7 +89,7 @@ def add_task_db(user_id: int, text: str, priority: int = 0) -> int:
                 VALUES (?, ?, 0, ?)
             """, (user_id, text, priority))
             task_id = c.lastrowid
-            logger.info(f"Добавлена задача: id={task_id}, user_id={user_id}, text='{text}'")
+            logger.info(f"Добавлена задача: id={task_id}, user_id={user_id}, text='{text}', priority={priority}")
         
         conn.commit()
         return task_id
@@ -103,14 +111,14 @@ def get_tasks_db(user_id: int, only_open: bool = False) -> List[Tuple]:
                 SELECT id, text, done, priority, reminder_time 
                 FROM tasks 
                 WHERE user_id = ? AND done = 0 
-                ORDER BY priority DESC, id
+                ORDER BY priority DESC, id ASC
             """, (user_id,))
         else:
             c.execute("""
                 SELECT id, text, done, priority, reminder_time 
                 FROM tasks 
                 WHERE user_id = ? 
-                ORDER BY priority DESC, id
+                ORDER BY priority DESC, id ASC
             """, (user_id,))
         tasks = c.fetchall()
         return tasks

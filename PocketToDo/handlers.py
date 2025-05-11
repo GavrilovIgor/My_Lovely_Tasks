@@ -370,7 +370,7 @@ async def task_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         # Переходим в режим просмотра категорий
         await show_categories_menu(update, context)
         return
-    
+
     if data == "reminder_mode":
         # Переходим в режим управления напоминаниями
         await show_reminders_menu(update, context)
@@ -559,10 +559,6 @@ async def set_task_priority(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 async def show_categories_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Показывает меню категорий задач
-    
-    Args:
-        update: Объект обновления Telegram
-        context: Контекст бота
     """
     query = update.callback_query
     await query.answer()
@@ -583,13 +579,6 @@ async def show_categories_menu(update: Update, context: ContextTypes.DEFAULT_TYP
     keyboard = []
     
     # Заголовок для меню категорий
-    keyboard.append([
-        InlineKeyboardButton(
-            text="Выберите категорию:",
-            callback_data="divider"
-        )
-    ])
-    
     if not categories:
         keyboard.append([
             InlineKeyboardButton(
@@ -599,7 +588,7 @@ async def show_categories_menu(update: Update, context: ContextTypes.DEFAULT_TYP
         ])
         keyboard.append([
             InlineKeyboardButton(
-                text="Напишите в названии новой задачи категорию после знака #",
+                text="Добавьте #категорию к задаче",
                 callback_data="divider"
             )
         ])
@@ -617,12 +606,12 @@ async def show_categories_menu(update: Update, context: ContextTypes.DEFAULT_TYP
     
     keyboard.append([
         InlineKeyboardButton(
-            text="↩️ Все задачи",
+            text="↩️ Назад к задачам",
             callback_data="back_to_list"
         )
     ])
     
-    # Изменяем текст сообщения и отображаем категории сразу
+    # Редактируем текущее сообщение вместо отправки нового
     await query.edit_message_text(
         text="Категории задач:",
         reply_markup=InlineKeyboardMarkup(keyboard)
@@ -723,10 +712,12 @@ async def show_tasks_by_category(update: Update, context: ContextTypes.DEFAULT_T
     ])
     
     # Изменяем текст сообщения для лучшей видимости
-    await query.edit_message_text(
+    await context.bot.send_message(
+        chat_id=query.message.chat_id,
         text=f"Категория #{category}:",
         reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+)
+
 
 async def show_reminders_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
