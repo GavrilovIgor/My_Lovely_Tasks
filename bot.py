@@ -1,6 +1,8 @@
 import os
 import re
 import sqlite3
+import logging
+import os
 from datetime import datetime, timedelta, date
 import time
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove
@@ -14,9 +16,6 @@ DB_PATH = "data/tasks.db"
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 ADDING_TASK = 1
 DELETING_TASKS = 2
-
-import logging
-import os
 
 # Получаем абсолютный путь к log-файлу в текущей директории проекта
 LOG_PATH = os.path.join(os.path.dirname(__file__), "bot.log")
