@@ -171,8 +171,13 @@ async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     for task_text in tasks_list:
         add_task_db(user_id, task_text)
     
-    # Сразу показываем список задач
-    await list_tasks(update, context)
+    # Проверяем, находимся ли мы в режиме просмотра категории
+    if hasattr(context, 'user_data') and context.user_data.get('active_category_view', False):
+        # Обновляем список задач в текущей категории
+        await show_tasks_by_category(update, context)
+    else:
+        # В остальных случаях показываем общий список задач
+        await list_tasks(update, context)
     
     return ConversationHandler.END
 
@@ -204,8 +209,13 @@ async def add_task_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     logger.info(f"Добавлены задачи через универсальный обработчик: user_id={user_id}, tasks={tasks_list}")
     
-    # Сразу показываем список задач (только один раз)
-    await list_tasks(update, context)
+    # Проверяем, находимся ли мы в режиме просмотра категории
+    if hasattr(context, 'user_data') and context.user_data.get('active_category_view', False):
+        # Обновляем список задач в текущей категории
+        await show_tasks_by_category(update, context)
+    else:
+        # В остальных случаях показываем общий список задач
+        await list_tasks(update, context)
 
 async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Optional[int]:
     """
@@ -418,16 +428,16 @@ async def task_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         task_id = int(data.split("_")[1])
         toggle_task_status_db(task_id)
         await query.answer("Статус задачи изменен")
-    
-    # Проверяем, находимся ли мы в режиме просмотра категории
-    if hasattr(context, 'user_data') and context.user_data.get('active_category_view', False):
-        # Обновляем список задач в текущей категории
-        await show_tasks_by_category(update, context)
-        return
-    else:
-        # В остальных случаях показываем общий список задач
-        await list_tasks(update, context)
-        return
+        
+        # Проверяем, находимся ли мы в режиме просмотра категории
+        if hasattr(context, 'user_data') and context.user_data.get('active_category_view', False):
+            # Обновляем список задач в текущей категории
+            await show_tasks_by_category(update, context)
+            return
+        else:
+            # В остальных случаях показываем общий список задач
+            await list_tasks(update, context)
+            return
 
 async def show_priority_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
@@ -626,19 +636,20 @@ async def show_tasks_by_category(update: Update, context: ContextTypes.DEFAULT_T
         context: Контекст бота
     """
     query = update.callback_query
-    await query.answer()
+    user_id = update.effective_user.id
     
     # Извлекаем категорию из callback_data или из сохраненного контекста
-    if hasattr(query, 'data') and query.data.startswith("filter_category_"):
+    if query and hasattr(query, 'data') and query.data.startswith("filter_category_"):
         category = query.data.split('_')[2]
-    elif 'current_view' in context.user_data and context.user_data['current_view']['type'] == 'category':
+        await query.answer()
+    elif hasattr(context, 'user_data') and 'current_view' in context.user_data and context.user_data['current_view']['type'] == 'category':
         category = context.user_data['current_view']['category']
     else:
         # Если категория не определена, возвращаемся к списку категорий
-        await show_categories_menu(update, context)
+        if query:
+            await query.answer()
+            await show_categories_menu(update, context)
         return
-    
-    user_id = query.from_user.id
     
     # Сохраняем текущую категорию в контексте
     if not hasattr(context, 'user_data'):
@@ -711,13 +722,31 @@ async def show_tasks_by_category(update: Update, context: ContextTypes.DEFAULT_T
         )
     ])
     
-    # Изменяем текст сообщения для лучшей видимости
-    await context.bot.send_message(
-        chat_id=query.message.chat_id,
-        text=f"Категория #{category}:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-)
-
+    message_text = f"Категория #{category}:"
+    
+    # Если это callback_query, редактируем существующее сообщение
+    if query:
+        try:
+            await query.edit_message_text(
+                text=message_text,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        except Exception as e:
+            # Если сообщение не изменилось, телеграм выдаст ошибку
+            # В этом случае просто игнорируем ее
+            logger.info(f"Не удалось обновить сообщение: {e}")
+            # Если не удалось отредактировать, отправляем новое
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=message_text,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+    else:
+        # Если это не callback_query (например, команда), отправляем новое сообщение
+        await update.effective_message.reply_text(
+            text=message_text,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
 
 async def show_reminders_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
