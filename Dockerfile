@@ -1,20 +1,23 @@
 # Используем официальный Python-образ
-FROM python:3.10
+FROM python:3.10-slim
 
 # Устанавливаем рабочую директорию внутри контейнера
 WORKDIR /app
 
+# Обновление pip
+RUN pip install --upgrade pip
+
 # Создаем директорию для данных
 RUN mkdir -p /app/data
 
-# Копируем все файлы проекта в контейнер
-COPY . .
+# Копируем файл с зависимостями
+COPY requirements.txt .
 
 # Устанавливаем зависимости
-RUN pip install --no-cache-dir python-dotenv apscheduler python-telegram-bot
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Открываем порт (если бот работает с вебхуками, например)
-# EXPOSE 8080
+# Копируем код из папки PocketToDo в контейнер
+COPY PocketToDo/ /app/
 
-# Запускаем бота
-CMD ["python", "bot.py"]
+# Запускаем бота (предполагается, что точка входа - main.py)
+CMD ["python", "main.py"]

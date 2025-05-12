@@ -19,13 +19,17 @@ os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 ADDING_TASK = 1
 DELETING_TASKS = 2
 
+# Создаем директорию logs, если она не существует
+logs_dir = "/logs"
+if not os.path.exists(logs_dir):
+    os.makedirs(logs_dir)
+
 # Настройка логирования
-LOG_PATH = os.path.join(os.path.dirname(__file__), "bot.log")
+log_file = os.path.join(logs_dir, "bot.log")
 logging.basicConfig(
-    filename=LOG_PATH,
-    filemode="a",
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
+    handlers=[logging.FileHandler(log_file), logging.StreamHandler()],
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
@@ -130,7 +134,7 @@ def main():
     app.job_queue.run_once(setup_commands, 1)
     
     logger.info("Бот запущен")
-    print(f"Бот запущен! Данные сохраняются в {DB_PATH}. Логи в {LOG_PATH}")
+    print(f"Бот запущен! Данные сохраняются в {DB_PATH}. Логи в {logs_dir}")
     
     # Регистрируем обработчики сигналов
     signal.signal(signal.SIGINT, signal_handler)  # Ctrl+C
