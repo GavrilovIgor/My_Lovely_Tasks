@@ -2,3 +2,5 @@
 .env
 bot.log
 tasks.db
+logs
+venv
