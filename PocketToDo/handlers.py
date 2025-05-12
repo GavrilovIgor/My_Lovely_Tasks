@@ -906,6 +906,44 @@ async def delete_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # Возвращаемся к списку напоминаний
     await show_reminders_menu(update, context)
 
+async def send_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Отправляет напоминание о задаче
+    
+    Args:
+        context: Контекст бота с данными задачи
+    """
+    job = context.job
+    task_id, user_id, task_text = job.data
+    
+    # Создаем клавиатуру для напоминания с тремя вариантами
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                text="✅ Выполнено / Отмена задачи",
+                callback_data=f"toggle_{task_id}"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="⏰ Отложить на 1 час",
+                callback_data=f"snooze_reminder_{task_id}_60"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="📆 Отложить на завтра",
+                callback_data=f"snooze_reminder_{task_id}_tomorrow"
+            )
+        ]
+    ]
+    
+    await context.bot.send_message(
+        chat_id=user_id,
+        text=f"🔔 Напоминание: {task_text}",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
 async def snooze_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Откладывает напоминание
@@ -929,21 +967,64 @@ async def snooze_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     result = c.fetchone()
     conn.close()
     
-    if result and result[0]:
-        current_reminder = datetime.strptime(result[0], '%Y-%m-%d %H:%M:%S')
-        
-        # Рассчитываем новое время напоминания
-        if snooze_value == "tomorrow":
-            # Отложить на завтра (то же время)
-            new_reminder = current_reminder + timedelta(days=1)
-        else:
-            # Отложить на указанное количество минут от ТЕКУЩЕГО времени напоминания
-            minutes = int(snooze_value)
-            new_reminder = current_reminder + timedelta(minutes=minutes)
-        
-        # Обновляем время напоминания
-        set_reminder(task_id, new_reminder)
-        logger.info(f"Напоминание отложено с {current_reminder} на {new_reminder}")
+    # Рассчитываем новое время напоминания от ТЕКУЩЕГО момента, а не от старого напоминания
+    now = datetime.now()
     
-    # Возвращаемся к списку напоминаний
-    await show_reminders_menu(update, context)
+    if snooze_value == "tomorrow":
+        # Отложить на завтра (то же время, но следующий день)
+        tomorrow = now + timedelta(days=1)
+        # Используем текущее время для установки часов и минут
+        new_reminder = datetime(
+            year=tomorrow.year,
+            month=tomorrow.month,
+            day=tomorrow.day,
+            hour=now.hour,
+            minute=now.minute,
+            second=0
+        )
+    
+    # Обновляем время напоминания
+    set_reminder(task_id, new_reminder)
+    logger.info(f"Напоминание отложено на {new_reminder}")
+    
+    # Сообщаем пользователю о новом времени напоминания
+    await query.edit_message_text(
+        text=f"Напоминание отложено на {new_reminder.strftime('%d.%m.%Y %H:%M')}",
+        reply_markup=None
+    )
+    
+    # Запускаем новое напоминание
+    task_text = get_task_text_by_id(task_id)
+    if task_text:
+        # Удаляем старое напоминание, если оно есть
+        job_name = f"reminder_{task_id}"
+        current_jobs = context.job_queue.get_jobs_by_name(job_name)
+        for job in current_jobs:
+            job.schedule_removal()
+        
+        # Создаем новое напоминание
+        context.job_queue.run_once(
+            send_reminder,
+            new_reminder - now,
+            data=(task_id, query.from_user.id, task_text),
+            name=job_name
+        )
+
+def get_task_text_by_id(task_id: int) -> Optional[str]:
+    """
+    Получает текст задачи по её ID
+    
+    Args:
+        task_id: ID задачи
+        
+    Returns:
+        Текст задачи или None, если задача не найдена
+    """
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT text FROM tasks WHERE id = ?", (task_id,))
+    result = c.fetchone()
+    conn.close()
+    
+    return result[0] if result else None
+

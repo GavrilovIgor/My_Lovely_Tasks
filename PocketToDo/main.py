@@ -33,9 +33,9 @@ from database import init_db
 from handlers import (
     start, help_command, list_tasks, add, save_task, 
     task_action, add_task_from_text, main_menu_handler,
-    ask_delete_tasks, delete_tasks_by_numbers
+    ask_delete_tasks, delete_tasks_by_numbers, send_reminder
 )
-from jobs import test_notification, send_reminder_notification
+from jobs import send_reminder_notification
 
 # Фильтр для кнопок главного меню
 menu_filter = (
@@ -122,8 +122,9 @@ def main():
     
     # Настройка планировщика задач
     job_queue = app.job_queue
-    job_queue.run_once(test_notification, 10)
-    job_queue.run_repeating(send_reminder_notification, interval=30, first=5)
+    # job_queue.run_once(test_notification, 10)  # Закомментировано, так как функция отсутствует
+    job_queue.run_repeating(send_reminder_notification, interval=15, first=5)
+
     
     # Настройка команд в меню бота
     app.job_queue.run_once(setup_commands, 1)

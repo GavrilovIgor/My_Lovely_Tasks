@@ -174,11 +174,17 @@ def check_due_reminders() -> List[Tuple]:
         logger.info(f"Все напоминания в системе: {all_reminders}")
         
         # Проверяем напоминания, время которых наступило
+        # Исключаем напоминания, которые уже были отправлены (содержат метку "_sent")
         c.execute("""
             SELECT id, user_id, text, done, reminder_time 
             FROM tasks 
-            WHERE reminder_time IS NOT NULL AND reminder_time <= ? AND done = 0
+            WHERE reminder_time IS NOT NULL 
+            AND reminder_time <= ? 
+            AND done = 0
+            AND reminder_time NOT LIKE '%' || '_sent'
         """, (now,))
+
+
         due_tasks = c.fetchall()
         
         logger.info(f"Проверка напоминаний на {now}: найдено {len(due_tasks)} задач")

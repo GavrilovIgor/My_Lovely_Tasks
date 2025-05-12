@@ -8,24 +8,6 @@ from database import check_due_reminders, set_reminder
 
 logger = logging.getLogger(__name__)
 
-async def test_notification(context: CallbackContext) -> None:
-    """
-    Отправляет тестовое уведомление для проверки работы планировщика
-    
-    Args:
-        context: Контекст бота
-    """
-    logger.info("Выполняется тестовое напоминание")
-    try:
-        admin_id = context.bot_data.get("admin_id", context.bot.id)
-        await context.bot.send_message(
-            chat_id=admin_id,
-            text="🔔 Тестовое напоминание работает!"
-        )
-        logger.info("Тестовое напоминание отправлено")
-    except Exception as e:
-        logger.error(f"Ошибка при отправке тестового напоминания: {e}")
-
 async def send_reminder_notification(context: CallbackContext) -> None:
     """
     Проверяет и отправляет уведомления о задачах с истекшим временем напоминания
@@ -34,6 +16,7 @@ async def send_reminder_notification(context: CallbackContext) -> None:
         context: Контекст бота
     """
     logger.info("Запущена проверка напоминаний")
+    logger.info(f"Текущее время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     due_tasks = check_due_reminders()
     logger.info(f"Проверка напоминаний: найдено {len(due_tasks)} задач")
     
@@ -41,32 +24,51 @@ async def send_reminder_notification(context: CallbackContext) -> None:
         logger.info(f"Найдены задачи для напоминания: {due_tasks}")
     
     for task_id, user_id, text, done, reminder_time in due_tasks:
-        # Создаем клавиатуру для напоминания
-        keyboard = [
-            [
-                InlineKeyboardButton(
-                    text="✅ Выполнено",
-                    callback_data=f"toggle_{task_id}"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="⏰ Отложить на 30 мин",
-                    callback_data=f"snooze_reminder_{task_id}_30"
-                )
-            ]
-        ]
-        
-        # Отправляем уведомление пользователю
+        # Отправляем напоминание напрямую
         try:
+            # Помечаем напоминание как отправленное ПЕРЕД отправкой сообщения
+            # Это предотвратит повторную отправку, если произойдет ошибка
+            import sqlite3
+            from database import DB_PATH
+            conn = sqlite3.connect(DB_PATH)
+            c = conn.cursor()
+            c.execute("UPDATE tasks SET reminder_time = ? WHERE id = ?", 
+                    (f"{reminder_time}_sent", task_id))
+            conn.commit()
+            conn.close()
+            logger.info(f"Напоминание помечено как отправленное: {task_id}")
+            
+            # Создаем клавиатуру для напоминания с тремя вариантами
+            keyboard = [
+                [
+                    InlineKeyboardButton(
+                        text="✅ Выполнено / Отмена задачи",
+                        callback_data=f"toggle_{task_id}"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="⏰ Отложить на 1 час",
+                        callback_data=f"snooze_reminder_{task_id}_60"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="📆 Отложить на завтра",
+                        callback_data=f"snooze_reminder_{task_id}_tomorrow"
+                    )
+                ]
+            ]
+            
+            # Отправляем сообщение напрямую
             await context.bot.send_message(
                 chat_id=user_id,
                 text=f"🔔 Напоминание: {text}",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
-            logger.info(f"Отправлено напоминание пользователю {user_id} о задаче {task_id}")
             
-            # Сбрасываем напоминание, чтобы оно не повторялось
-            set_reminder(task_id, None)
+            logger.info(f"Отправлено напоминание пользователю {user_id} о задаче {task_id}")
         except Exception as e:
             logger.error(f"Ошибка при отправке напоминания: {e}")
+
+
