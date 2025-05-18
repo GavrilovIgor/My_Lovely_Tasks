@@ -2,7 +2,7 @@ import os
 import logging
 import signal
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, 
     filters, ConversationHandler, CallbackQueryHandler, ContextTypes
@@ -127,8 +127,7 @@ def main():
     # Настройка планировщика задач
     job_queue = app.job_queue
     # job_queue.run_once(test_notification, 10)  # Закомментировано, так как функция отсутствует
-    job_queue.run_repeating(send_reminder_notification, interval=15, first=5)
-
+    job_queue.run_repeating(send_reminder_notification, interval=60, first=10)
     
     # Настройка команд в меню бота
     app.job_queue.run_once(setup_commands, 1)

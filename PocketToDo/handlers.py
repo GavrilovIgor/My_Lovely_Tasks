@@ -3,7 +3,7 @@ import logging
 import re
 from database import DB_PATH
 from typing import Dict, Any, List, Tuple, Optional, Union
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import ContextTypes, ConversationHandler
 
@@ -945,67 +945,65 @@ async def send_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 async def snooze_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    Откладывает напоминание
-    
-    Args:
-        update: Объект обновления Telegram
-        context: Контекст бота
-    """
     query = update.callback_query
     await query.answer()
-    
-    # Извлекаем ID задачи и время отсрочки из callback_data
+
     parts = query.data.split('_')
     task_id = int(parts[2])
     snooze_value = parts[3]
-    
-    # Получаем текущее время напоминания
+
+    # Всегда работаем в московской зоне (UTC+3)
+    now = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=3)))
+
+    # Получаем исходное время напоминания из БД
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("SELECT reminder_time FROM tasks WHERE id = ?", (task_id,))
     result = c.fetchone()
     conn.close()
-    
-    # Рассчитываем новое время напоминания от ТЕКУЩЕГО момента, а не от старого напоминания
-    now = datetime.now()
-    
+
+    reminder_time = None
+    if result and result[0]:
+        try:
+            reminder_time = datetime.strptime(result[0], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone(timedelta(hours=3)))
+        except Exception:
+            reminder_time = now  # fallback
+
     if snooze_value == "tomorrow":
-        # Отложить на завтра (то же время, но следующий день)
-        tomorrow = now + timedelta(days=1)
-        # Используем текущее время для установки часов и минут
-        new_reminder = datetime(
-            year=tomorrow.year,
-            month=tomorrow.month,
-            day=tomorrow.day,
-            hour=now.hour,
-            minute=now.minute,
-            second=0
-        )
-    
-    # Обновляем время напоминания
+        # Переносим на завтра в то же время, что было у исходного напоминания
+        if reminder_time:
+            new_reminder = reminder_time + timedelta(days=1)
+        else:
+            new_reminder = now + timedelta(days=1)
+        new_reminder = new_reminder.replace(second=0)
+    else:
+        try:
+            minutes = int(snooze_value)
+            new_reminder = now + timedelta(minutes=minutes)
+            new_reminder = new_reminder.replace(second=0)
+        except Exception:
+            new_reminder = now + timedelta(hours=1)
+            new_reminder = new_reminder.replace(second=0)
+
     set_reminder(task_id, new_reminder)
     logger.info(f"Напоминание отложено на {new_reminder}")
-    
-    # Сообщаем пользователю о новом времени напоминания
+
     await query.edit_message_text(
         text=f"Напоминание отложено на {new_reminder.strftime('%d.%m.%Y %H:%M')}",
         reply_markup=None
     )
-    
+
     # Запускаем новое напоминание
     task_text = get_task_text_by_id(task_id)
     if task_text:
-        # Удаляем старое напоминание, если оно есть
         job_name = f"reminder_{task_id}"
         current_jobs = context.job_queue.get_jobs_by_name(job_name)
         for job in current_jobs:
             job.schedule_removal()
-        
-        # Создаем новое напоминание
+
         context.job_queue.run_once(
             send_reminder,
-            new_reminder - now,
+            when=(new_reminder - now).total_seconds(),
             data=(task_id, query.from_user.id, task_text),
             name=job_name
         )

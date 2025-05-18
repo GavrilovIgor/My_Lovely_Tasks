@@ -1,6 +1,6 @@
 import sqlite3
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import List, Tuple, Optional, Any, Dict, Union
 from contextlib import contextmanager
 
@@ -29,15 +29,23 @@ def init_db() -> None:
     with get_connection() as conn:
         c = conn.cursor()
         c.execute("""
-            CREATE TABLE IF NOT EXISTS tasks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER,
-                text TEXT,
-                done INTEGER DEFAULT 0,
-                priority INTEGER DEFAULT 0,
-                reminder_time TIMESTAMP DEFAULT NULL
-            )
-        """)
+        CREATE TABLE IF NOT EXISTS tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            text TEXT,
+            done INTEGER DEFAULT 0,
+            priority INTEGER DEFAULT 0,
+            reminder_time TIMESTAMP DEFAULT NULL,
+            reminder_sent INTEGER DEFAULT 0
+        )
+    """)
+        # Добавить миграцию для существующей БД:
+        c.execute("PRAGMA table_info(tasks)")
+        columns = [column[1] for column in c.fetchall()]
+        if 'reminder_sent' not in columns:
+            c.execute("ALTER TABLE tasks ADD COLUMN reminder_sent INTEGER DEFAULT 0")
+            logger.info("Добавлена колонка reminder_sent в таблицу tasks")
+
         
         # Проверяем, существует ли колонка priority
         c.execute("PRAGMA table_info(tasks)")
@@ -166,24 +174,23 @@ def check_due_reminders() -> List[Tuple]:
     """Проверка задач с истекшим временем напоминания"""
     with get_connection() as conn:
         c = conn.cursor()
-        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        
+        now = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=3)))  
+        # МСК
+        now_str = now.strftime('%Y-%m-%d %H:%M:%S')
         # Выводим все напоминания для отладки
         c.execute("SELECT id, user_id, text, reminder_time FROM tasks WHERE reminder_time IS NOT NULL")
         all_reminders = c.fetchall()
         logger.info(f"Все напоминания в системе: {all_reminders}")
-        
-        # Проверяем напоминания, время которых наступило
+
         # Исключаем напоминания, которые уже были отправлены (содержат метку "_sent")
         c.execute("""
             SELECT id, user_id, text, done, reminder_time 
             FROM tasks 
             WHERE reminder_time IS NOT NULL 
-            AND reminder_time <= ? 
+            AND DATETIME(reminder_time) <= DATETIME(?) 
             AND done = 0
-            AND reminder_time NOT LIKE '%' || '_sent'
-        """, (now,))
-
+            AND reminder_time NOT LIKE '%\\_sent' ESCAPE '\\'
+        """, (now_str,))
 
         due_tasks = c.fetchall()
         

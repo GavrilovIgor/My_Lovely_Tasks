@@ -1,6 +1,6 @@
 import re
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Tuple, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -31,10 +31,10 @@ def extract_reminder_time(text: str) -> Tuple[Optional[datetime], str]:
     clean_text = re.sub(r'@\d{1,2}:\d{2}', '', text).strip()
     
     # Создаем время напоминания
-    now = datetime.now()
-    reminder_time = datetime(now.year, now.month, now.day, hour, minute)
-    
-    # Если время уже прошло, устанавливаем на завтра
+    now = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=3)))  # МСК
+    reminder_time = datetime(
+        now.year, now.month, now.day, hour, minute, tzinfo=timezone(timedelta(hours=3))
+    )
     if reminder_time < now:
         reminder_time = reminder_time + timedelta(days=1)
     

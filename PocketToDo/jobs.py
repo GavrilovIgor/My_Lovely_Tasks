@@ -1,6 +1,6 @@
 import logging
 from typing import Any
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from telegram.ext import CallbackContext
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -26,18 +26,6 @@ async def send_reminder_notification(context: CallbackContext) -> None:
     for task_id, user_id, text, done, reminder_time in due_tasks:
         # Отправляем напоминание напрямую
         try:
-            # Помечаем напоминание как отправленное ПЕРЕД отправкой сообщения
-            # Это предотвратит повторную отправку, если произойдет ошибка
-            import sqlite3
-            from database import DB_PATH
-            conn = sqlite3.connect(DB_PATH)
-            c = conn.cursor()
-            c.execute("UPDATE tasks SET reminder_time = ? WHERE id = ?", 
-                    (f"{reminder_time}_sent", task_id))
-            conn.commit()
-            conn.close()
-            logger.info(f"Напоминание помечено как отправленное: {task_id}")
-            
             # Создаем клавиатуру для напоминания с тремя вариантами
             keyboard = [
                 [
@@ -60,7 +48,7 @@ async def send_reminder_notification(context: CallbackContext) -> None:
                 ]
             ]
             
-            # Отправляем сообщение напрямую
+            # Сначала отправляем сообщение
             await context.bot.send_message(
                 chat_id=user_id,
                 text=f"🔔 Напоминание: {text}",
@@ -68,7 +56,15 @@ async def send_reminder_notification(context: CallbackContext) -> None:
             )
             
             logger.info(f"Отправлено напоминание пользователю {user_id} о задаче {task_id}")
+            
+            # После успешной отправки помечаем как отправленное
+            import sqlite3
+            from database import DB_PATH
+            conn = sqlite3.connect(DB_PATH)
+            c = conn.cursor()
+            c.execute("UPDATE tasks SET reminder_time = NULL WHERE id = ?", (task_id,))
+            conn.commit()
+            conn.close()
+            logger.info(f"Напоминание помечено как отправленное: {task_id}")
         except Exception as e:
             logger.error(f"Ошибка при отправке напоминания: {e}")
-
-
