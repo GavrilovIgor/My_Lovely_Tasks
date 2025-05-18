@@ -34,13 +34,16 @@ priority_map = {
 
 def extract_priority(text: str) -> Tuple[int, str]:
     logger.info(f"Обработка текста для определения приоритета: '{text}'")
-    match = re.search(r'!(\w+)', text, re.IGNORECASE)
+    # Теперь ищем как '!важно', так и '! важно'
+    match = re.search(r'!\s*(\w+)', text, re.IGNORECASE)
     if not match:
         logger.info("Приоритет не найден")
         return 0, text
     priority_text = match.group(1).lower()
     logger.info(f"Найден приоритет: {priority_text}")
     priority = priority_map.get(priority_text, 0)
-    clean_text = re.sub(r'!\w+', '', text).strip()
+    # Удаляем из текста как '!важно', так и '! важно'
+    clean_text = re.sub(r'!\s*\w+', '', text).strip()
     logger.info(f"Установлен приоритет: {priority}, очищенный текст: '{clean_text}'")
     return priority, clean_text
+
