@@ -2,9 +2,9 @@ import sqlite3
 import logging
 import re
 from database import DB_PATH
-from typing import Dict, Any, List, Tuple, Optional, Union
+from typing import List, Tuple, Optional
 from datetime import datetime, timedelta, timezone
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 
 from database import (
@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 # Состояния для ConversationHandler
 ADDING_TASK = 1
 DELETING_TASKS = 2
+
+# Единый список кнопок меню
+MENU_BUTTONS = ["📋 Мои задачи", "🧹 Удалить выполненные", "❌ Отмена"]
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
@@ -154,14 +157,14 @@ async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return ConversationHandler.END
     
     # Список текстов кнопок, которые не должны добавляться как задачи
-    menu_buttons = ["📋 Мои задачи", "🧹 Удалить выполненные", "❌ Отмена"]
+    MENU_BUTTONS = ["📋 Мои задачи", "🧹 Удалить выполненные", "❌ Отмена"]
     
     if not input_text:
         await update.message.reply_text("Пустой ввод. Попробуйте снова.")
         return ConversationHandler.END
     
     # Проверяем, не является ли ввод текстом кнопки меню
-    if input_text in menu_buttons:
+    if input_text in MENU_BUTTONS:
         # Если это кнопка меню, обрабатываем её как нажатие кнопки
         await main_menu_handler(update, context)
         return ConversationHandler.END
@@ -193,13 +196,12 @@ async def add_task_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
     text = update.message.text.strip()
     
     # Список текстов кнопок, которые не должны добавляться как задачи
-    menu_buttons = ["📋 Мои задачи", "🧹 Удалить выполненные", "❌ Отмена"]
+    MENU_BUTTONS = ["📋 Мои задачи", "🧹 Удалить выполненные", "❌ Отмена"]
     
-    if not text or text.startswith('/'):
-        return  # Игнорируем пустые сообщения и команды
+    if not text or text.startswith('/') or text in MENU_BUTTONS: return
     
     # Проверяем, не является ли ввод текстом кнопки меню
-    if text in menu_buttons:
+    if text in MENU_BUTTONS:
         return  # Игнорируем тексты кнопок меню
     
     # Разделяем по ; или по переводу строки
@@ -297,9 +299,9 @@ async def delete_tasks_by_numbers(update: Update, context: ContextTypes.DEFAULT_
         return ConversationHandler.END
     
     # Список текстов кнопок, которые не должны обрабатываться как номера задач
-    menu_buttons = ["📋 Мои задачи", "🧹 Удалить выполненные", "❌ Отмена"]
+    MENU_BUTTONS = ["📋 Мои задачи", "🧹 Удалить выполненные", "❌ Отмена"]
     
-    if input_text in menu_buttons:
+    if input_text in MENU_BUTTONS:
         # Если это кнопка меню, обрабатываем её как нажатие кнопки
         await main_menu_handler(update, context)
         return ConversationHandler.END
@@ -311,20 +313,12 @@ async def delete_tasks_by_numbers(update: Update, context: ContextTypes.DEFAULT_
     # Разбиваем по запятой
     for part in input_text.split(','):
         if '-' in part:
-            # Диапазон, например 2-5
-            try:
-                start, end = map(int, part.split('-'))
+            start_end = part.split('-')
+            if len(start_end) == 2 and start_end[0].isdigit() and start_end[1].isdigit():
+                start, end = map(int, start_end)
                 for n in range(start, end + 1):
                     if 1 <= n <= len(tasks):
-                        to_delete.add(tasks[n-1][0])  # task_id
-            except Exception:
-                continue
-        else:
-            # Одиночный номер
-            if part.isdigit():
-                n = int(part)
-                if 1 <= n <= len(tasks):
-                    to_delete.add(tasks[n-1][0])  # task_id
+                        to_delete.add(tasks[n-1][0])
 
     if not to_delete:
         await update.message.reply_text(
