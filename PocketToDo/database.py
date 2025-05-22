@@ -65,19 +65,23 @@ def init_db() -> None:
 
 def add_task_db(user_id: int, text: str, priority: int = 0) -> int:
     """Добавление новой задачи в БД"""
-    from utils import extract_reminder_time, extract_priority  # Импорт здесь для избежания циклических импортов
-    
+    from utils import extract_reminder_time, extract_priority, extract_categories_and_clean  # импорт здесь для избежания циклических импортов
+
     # Извлекаем приоритет из текста задачи
     task_priority, text_without_priority = extract_priority(text)
-    
+
     # Если приоритет указан в тексте, используем его, иначе используем переданный параметр
     if task_priority > 0:
         priority = task_priority
         text = text_without_priority
-    
+
+    # Извлекаем категории и чистим текст от тегов
+    categories, text_without_tags = extract_categories_and_clean(text)
+    text = text_without_tags
+
     # Извлекаем время напоминания из текста задачи
     reminder_time, clean_text = extract_reminder_time(text)
-    
+
     with get_connection() as conn:
         c = conn.cursor()
         

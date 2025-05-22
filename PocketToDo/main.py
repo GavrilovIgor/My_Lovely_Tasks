@@ -46,9 +46,9 @@ menu_filter = (
 async def setup_commands(application):
     from telegram import BotCommand, BotCommandScopeDefault
     commands = [
-        BotCommand("start", "Перезапустить бота / обновить меню"),
-        BotCommand("list", "Показать список задач"),
-        BotCommand("add", "Добавить новую задачу")
+        BotCommand("start", "Запуск бота"),
+        BotCommand("help", "Что умеет бот?"),
+        BotCommand("list", "Показать список задач")
     ]
     await application.bot.set_my_commands(commands, scope=BotCommandScopeDefault())
     logger.info("Команды бота настроены")

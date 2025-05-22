@@ -13,7 +13,7 @@ from database import (
     update_task_priority, toggle_all_tasks_db
 )
 from keyboards import get_main_keyboard, get_task_list_markup, get_cancel_keyboard
-from utils import extract_categories
+from utils import extract_categories_and_clean
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
  # Показываем краткий гайд только если не показывали ранее
     if not context.user_data.get('hint_start_shown'):
         await update.message.reply_text(
-            "ℹ️ Добро пожаловать ✋!\n\n"
+            "ℹ️ Добро пожаловать ✋\n\n"
             "Вот как легко мной пользоваться:\n\n"
             "✨ Просто напиши свою задачу, например:\n"
             "Купить колбаски \n\n"
@@ -60,7 +60,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "✨ Всё вместе может выглядеть так:\n"
             "Поставить встречу с командой #работа !срочно @13:35\n\n"
             "❓ Если вдруг что-то забыл - просто набери /help или выбери /help в меню!\n\n"
-            "Удачи! Ты справишься 😎",
+            "Вперед 🚀",
             reply_markup=get_main_keyboard()
         )
         context.user_data['hint_start_shown'] = True
@@ -608,13 +608,13 @@ async def show_categories_menu(update: Update, context: ContextTypes.DEFAULT_TYP
     # Собираем все категории из задач
     categories = {}
     for task_id, text, done, priority, reminder_time in tasks:
-        task_categories = extract_categories(text)
+        task_categories, _ = extract_categories_and_clean(text)
         for category in task_categories:
             if category in categories:
                 categories[category] += 1
             else:
                 categories[category] = 1
-    
+
     keyboard = []
     
     # Заголовок для меню категорий
@@ -713,7 +713,8 @@ async def show_tasks_by_category(update: Update, context: ContextTypes.DEFAULT_T
     # Фильтруем задачи по категории
     found = False
     for task_id, text, done, priority, reminder_time in tasks:
-        if f"#{category}" in text:
+        task_categories, _ = extract_categories_and_clean(text)
+        if category in task_categories:
             found = True
             # Формируем статус задачи
             status = "✅" if done else "☐"
