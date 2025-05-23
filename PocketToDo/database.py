@@ -64,13 +64,10 @@ def init_db() -> None:
         conn.commit()
 
 def add_task_db(user_id: int, text: str, priority: int = 0) -> int:
-    """Добавление новой задачи в БД"""
-    from utils import extract_reminder_time, extract_priority, extract_categories # импорт здесь для избежания циклических импортов
+    from utils import extract_reminder_time, extract_priority, extract_categories
 
     # Извлекаем приоритет из текста задачи
     task_priority, text_without_priority = extract_priority(text)
-
-    # Если приоритет указан в тексте, используем его, иначе используем переданный параметр
     if task_priority > 0:
         priority = task_priority
         text = text_without_priority
@@ -79,26 +76,25 @@ def add_task_db(user_id: int, text: str, priority: int = 0) -> int:
     categories = extract_categories(text)
 
     # Извлекаем время напоминания из текста задачи
-    reminder_time, clean_text = extract_reminder_time(text)
-
+    reminder_time, _ = extract_reminder_time(text)
     with get_connection() as conn:
         c = conn.cursor()
-        
         if reminder_time:
-            reminder_str = reminder_time.strftime('%Y-%m-%d %H:%M:%S')
-            c.execute("""
-                INSERT INTO tasks (user_id, text, done, priority, reminder_time) 
-                VALUES (?, ?, 0, ?, ?)
-            """, (user_id, clean_text, priority, reminder_str))
-            ...
+            reminder_str = reminder_time.strftime("%Y-%m-%d %H:%M:%S")
+            c.execute(
+                "INSERT INTO tasks (user_id, text, done, priority, reminder_time) VALUES (?, ?, 0, ?, ?)",
+                (user_id, text, priority, reminder_str),
+            )
+            task_id = c.lastrowid
+            logger.info(f"Добавлена задача: id={task_id}, user_id={user_id}, text='{text}', priority={priority}, reminder_time={reminder_str}")
         else:
-            c.execute("""
-                INSERT INTO tasks (user_id, text, done, priority) 
-                VALUES (?, ?, 0, ?)
-            """, (user_id, text, priority))
+            c.execute(
+                "INSERT INTO tasks (user_id, text, done, priority) VALUES (?, ?, 0, ?)",
+                (user_id, text, priority),
+            )
             task_id = c.lastrowid
             logger.info(f"Добавлена задача: id={task_id}, user_id={user_id}, text='{text}', priority={priority}")
-        
+
         conn.commit()
         return task_id
 
