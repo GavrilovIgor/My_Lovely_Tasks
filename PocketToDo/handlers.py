@@ -13,7 +13,7 @@ from database import (
     update_task_priority, toggle_all_tasks_db
 )
 from keyboards import get_main_keyboard, get_task_list_markup, get_cancel_keyboard
-from utils import extract_categories_and_clean
+from utils import extract_categories
 
 logger = logging.getLogger(__name__)
 
@@ -608,7 +608,7 @@ async def show_categories_menu(update: Update, context: ContextTypes.DEFAULT_TYP
     # Собираем все категории из задач
     categories = {}
     for task_id, text, done, priority, reminder_time in tasks:
-        task_categories, _ = extract_categories_and_clean(text)
+        task_categories = extract_categories(text)
         for category in task_categories:
             if category in categories:
                 categories[category] += 1
@@ -713,7 +713,7 @@ async def show_tasks_by_category(update: Update, context: ContextTypes.DEFAULT_T
     # Фильтруем задачи по категории
     found = False
     for task_id, text, done, priority, reminder_time in tasks:
-        task_categories, _ = extract_categories_and_clean(text)
+        task_categories = extract_categories(text)
         if category in task_categories:
             found = True
             # Формируем статус задачи

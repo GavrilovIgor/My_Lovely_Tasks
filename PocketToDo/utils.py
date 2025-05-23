@@ -22,10 +22,9 @@ def extract_reminder_time(text: str) -> Tuple[Optional[datetime], str]:
     logger.info(f"Установлено напоминание на: {reminder_time}")
     return reminder_time, clean_text
 
-def extract_categories_and_clean(text: str) -> Tuple[List[str], str]:
+def extract_categories(text: str) -> List[str]:
     hashtags = re.findall(r'#(\w+)', text)
-    clean_text = re.sub(r'#\w+', '', text).strip()
-    return hashtags, clean_text
+    return hashtags
 
 priority_map = {
     # Высокий приоритет

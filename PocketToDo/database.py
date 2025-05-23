@@ -65,7 +65,7 @@ def init_db() -> None:
 
 def add_task_db(user_id: int, text: str, priority: int = 0) -> int:
     """Добавление новой задачи в БД"""
-    from utils import extract_reminder_time, extract_priority, extract_categories_and_clean  # импорт здесь для избежания циклических импортов
+    from utils import extract_reminder_time, extract_priority, extract_categories # импорт здесь для избежания циклических импортов
 
     # Извлекаем приоритет из текста задачи
     task_priority, text_without_priority = extract_priority(text)
@@ -76,8 +76,7 @@ def add_task_db(user_id: int, text: str, priority: int = 0) -> int:
         text = text_without_priority
 
     # Извлекаем категории и чистим текст от тегов
-    categories, text_without_tags = extract_categories_and_clean(text)
-    text = text_without_tags
+    categories = extract_categories(text)
 
     # Извлекаем время напоминания из текста задачи
     reminder_time, clean_text = extract_reminder_time(text)
@@ -86,16 +85,13 @@ def add_task_db(user_id: int, text: str, priority: int = 0) -> int:
         c = conn.cursor()
         
         if reminder_time:
-            # Если есть напоминание, сохраняем его
             reminder_str = reminder_time.strftime('%Y-%m-%d %H:%M:%S')
             c.execute("""
                 INSERT INTO tasks (user_id, text, done, priority, reminder_time) 
                 VALUES (?, ?, 0, ?, ?)
             """, (user_id, clean_text, priority, reminder_str))
-            task_id = c.lastrowid
-            logger.info(f"Добавлена задача с напоминанием: id={task_id}, user_id={user_id}, text='{clean_text}', priority={priority}, reminder={reminder_str}")
+            ...
         else:
-            # Если напоминания нет, сохраняем без него
             c.execute("""
                 INSERT INTO tasks (user_id, text, done, priority) 
                 VALUES (?, ?, 0, ?)
