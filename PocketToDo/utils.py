@@ -6,21 +6,41 @@ from typing import Tuple, List, Optional
 logger = logging.getLogger(__name__)
 
 def extract_reminder_time(text: str) -> Tuple[Optional[datetime], str]:
-    logger.info(f"Обработка текста для напоминания: '{text}'")
-    match = re.search(r'@(\d{1,2}):(\d{2})', text)
-    if not match:
-        logger.info("Напоминание не найдено")
-        return None, text
-    hour = int(match.group(1))
-    minute = int(match.group(2))
-    logger.info(f"Найдено время: {hour}:{minute}")
-    clean_text = re.sub(r'@\d{1,2}:\d{2}', '', text).strip()
-    now = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=3)))
-    reminder_time = datetime(now.year, now.month, now.day, hour, minute, tzinfo=timezone(timedelta(hours=3)))
-    if reminder_time < now:
-        reminder_time = reminder_time + timedelta(days=1)
-    logger.info(f"Установлено напоминание на: {reminder_time}")
-    return reminder_time, clean_text
+    logger.info(f"extract_reminder_time: {text}")
+    # Новый паттерн: дата и время (например, 29.05 10:00)
+    match = re.search(r'(\d{1,2})\.(\d{1,2})\s+(\d{1,2}):(\d{2})', text)
+    if match:
+        day = int(match.group(1))
+        month = int(match.group(2))
+        hour = int(match.group(3))
+        minute = int(match.group(4))
+        now = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=3)))
+        year = now.year
+        # Если дата уже прошла в этом году — переносим на следующий
+        try:
+            reminder_time = datetime(year, month, day, hour, minute, tzinfo=timezone(timedelta(hours=3)))
+            if reminder_time < now:
+                reminder_time = datetime(year + 1, month, day, hour, minute, tzinfo=timezone(timedelta(hours=3)))
+        except ValueError:
+            logger.info("Invalid date in reminder")
+            return None, text
+        clean_text = re.sub(r'(\d{1,2})\.(\d{1,2})\s+(\d{1,2}):(\d{2})', '', text).strip()
+        logger.info(f"Reminder time set to: {reminder_time}")
+        return reminder_time, clean_text
+    # Старый паттерн: только время
+    match = re.search(r'(\d{1,2}):(\d{2})', text)
+    if match:
+        hour = int(match.group(1))
+        minute = int(match.group(2))
+        now = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=3)))
+        reminder_time = datetime(now.year, now.month, now.day, hour, minute, tzinfo=timezone(timedelta(hours=3)))
+        if reminder_time < now:
+            reminder_time = reminder_time + timedelta(days=1)
+        clean_text = re.sub(r'\d{1,2}:\d{2}', '', text).strip()
+        logger.info(f"Reminder time set to: {reminder_time}")
+        return reminder_time, clean_text
+    logger.info("No time found in text")
+    return None, text
 
 def extract_categories(text: str) -> List[str]:
     hashtags = re.findall(r'#(\w+)', text)
