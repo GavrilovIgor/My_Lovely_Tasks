@@ -104,15 +104,6 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     
     # Создаем клавиатуру
     keyboard_markup = get_task_list_markup(entity_id)
-    
-    # Если у пользователя нет задач
-    if not tasks:
-        message = "У вас пока нет задач 🙂"
-        if update.callback_query:
-            await update.callback_query.answer(message)
-        else:
-            await update.message.reply_text(message)
-        return
 
     # Отправляем или обновляем сообщение со списком задач
     try:
@@ -280,7 +271,7 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 owner_id = update.effective_user.id
             delete_completed_tasks_for_user(owner_id)
 
-            await update.message.reply_text("Выполненные задачи удалены.", reply_markup=get_main_keyboard())
+            await update.message.reply_text("Выполненные задачи удалены", reply_markup=get_main_keyboard())
             
             # Проверяем, находимся ли мы в режиме просмотра категории
             if hasattr(context, 'user_data') and context.user_data.get('active_category_view', False):
