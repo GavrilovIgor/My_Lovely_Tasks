@@ -10,7 +10,7 @@ from telegram.ext import ContextTypes, ConversationHandler
 from database import (
     get_tasks_db, toggle_task_status_db, add_task_db, delete_task_db,
     delete_completed_tasks_for_user, get_tasks_with_reminders, set_reminder,
-    update_task_priority, toggle_all_tasks_db
+    update_task_priority, toggle_task_db
 )
 from keyboards import get_main_keyboard, get_task_list_markup, get_cancel_keyboard
 from utils import extract_categories
@@ -91,23 +91,19 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
 
 async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    Показывает список задач пользователя
-    
-    Args:
-        update: Объект обновления Telegram
-        context: Контекст бота
-    """
-    user_id = update.effective_user.id
-    tasks = get_tasks_db(user_id, only_open=False)
-    
+    if update.effective_chat.type in ['group', 'supergroup']:
+        entity_id = update.effective_chat.id
+    else:
+        entity_id = update.effective_user.id  # ✅ Исправлено!
+    tasks = get_tasks_db(entity_id, only_open=False)
+
     # Устанавливаем флаги в контексте
     if hasattr(context, 'user_data'):
         context.user_data['active_task_list'] = True
         context.user_data['active_category_view'] = False
     
     # Создаем клавиатуру
-    keyboard_markup = get_task_list_markup(user_id)
+    keyboard_markup = get_task_list_markup(entity_id)
     
     # Если у пользователя нет задач
     if not tasks:
@@ -131,8 +127,12 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                 reply_markup=keyboard_markup
             )
     except Exception as e:
-        logger.error(f"Ошибка при отображении списка задач: {e}")
+        # Игнорируем ошибку "Message is not modified"
+        if "Message is not modified" in str(e):
+            logger.info("Сообщение не изменилось, пропускаем обновление")
+            return
         
+        logger.error(f"Ошибка при отображении списка задач: {e}")
         # Если не удалось отредактировать сообщение, отправляем новое
         try:
             chat_id = update.effective_chat.id
@@ -143,8 +143,6 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             )
         except Exception as e2:
             logger.error(f"Повторная ошибка: {e2}")
-            if update.message:
-                await update.message.reply_text("Не удалось загрузить список задач. Попробуйте еще раз.")
 
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
@@ -166,17 +164,22 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
     Сохраняет новую задачу
-    
+
     Args:
         update: Объект обновления Telegram
         context: Контекст бота
-        
+
     Returns:
         int: Следующее состояние разговора
     """
-    user_id = update.message.from_user.id
+    # Определяем owner_id для группы или лички
+    if update.effective_chat.type in ['group', 'supergroup']:
+        owner_id = update.effective_chat.id
+    else:
+        owner_id = update.effective_user.id
+
     input_text = update.message.text.strip()
-    
+
     # Проверяем, нажал ли пользователь кнопку отмены
     if input_text == "❌ Отмена":
         await update.message.reply_text(
@@ -184,25 +187,25 @@ async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             reply_markup=get_main_keyboard()
         )
         return ConversationHandler.END
-    
+
     # Список текстов кнопок, которые не должны добавляться как задачи
     MENU_BUTTONS = ["📋 Мои задачи", "🧹 Удалить выполненные", "❌ Отмена"]
-    
+
     if not input_text:
         await update.message.reply_text("Пустой ввод. Попробуйте снова.")
         return ConversationHandler.END
-    
+
     # Проверяем, не является ли ввод текстом кнопки меню
     if input_text in MENU_BUTTONS:
         # Если это кнопка меню, обрабатываем её как нажатие кнопки
         await main_menu_handler(update, context)
         return ConversationHandler.END
-    
+
     tasks_list = [task.strip() for task in re.split(r';|\n', input_text) if task.strip()]
-    
+
     for task_text in tasks_list:
-        add_task_db(user_id, task_text)
-    
+        add_task_db(owner_id, task_text)
+
     # Проверяем, находимся ли мы в режиме просмотра категории
     if hasattr(context, 'user_data') and context.user_data.get('active_category_view', False):
         # Обновляем список задач в текущей категории
@@ -210,42 +213,42 @@ async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     else:
         # В остальных случаях показываем общий список задач
         await list_tasks(update, context)
-    
+
     return ConversationHandler.END
 
 async def add_task_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    Добавляет задачу из текстового сообщения
-    
-    Args:
-        update: Объект обновления Telegram
-        context: Контекст бота
-    """
-    user_id = update.message.from_user.id
+    MENUBUTTONS = ["Меню", "Список", "Удалить"]
     text = update.message.text.strip()
-    
-    # Список текстов кнопок, которые не должны добавляться как задачи
-    MENU_BUTTONS = ["📋 Мои задачи", "🧹 Удалить выполненные", "❌ Отмена"]
-    
-    if not text or text.startswith('/') or text in MENU_BUTTONS: return
-    
-    # Проверяем, не является ли ввод текстом кнопки меню
-    if text in MENU_BUTTONS:
-        return  # Игнорируем тексты кнопок меню
-    
-    # Разделяем по ; или по переводу строки
-    tasks_list = [task.strip() for task in re.split(r';|\n', text) if task.strip()]
+    if not text or text.startswith("/") or text in MENUBUTTONS:
+        return
+    if text in MENUBUTTONS:
+        return
+
+    # Получаем username бота
+    bot_username = (await context.bot.get_me()).username
+    mention = f"@{bot_username}"
+
+    # Определяем owner_id и task_text
+    if update.effective_chat.type in ['group', 'supergroup']:
+        if not text.startswith(mention):
+            return  # В группе реагируем только на сообщения с упоминанием
+        task_text = text[len(mention):].strip()
+        if not task_text:
+            return
+        owner_id = update.effective_chat.id
+    else:
+        task_text = text
+        owner_id = update.effective_user.id
+
+    tasks_list = [task.strip() for task in re.split(r";|\n", task_text) if task.strip()]
     for task_text in tasks_list:
-        add_task_db(user_id, task_text)
-    
-    logger.info(f"Добавлены задачи через универсальный обработчик: user_id={user_id}, tasks={tasks_list}")
-    
-    # Проверяем, находимся ли мы в режиме просмотра категории
-    if hasattr(context, 'user_data') and context.user_data.get('active_category_view', False):
-        # Обновляем список задач в текущей категории
+        add_task_db(owner_id, task_text)
+
+    logger.info(f"owner_id={owner_id}, tasks={tasks_list}")
+
+    if hasattr(context, "user_data") and context.user_data.get("active_category_view", False):
         await show_tasks_by_category(update, context)
     else:
-        # В остальных случаях показываем общий список задач
         await list_tasks(update, context)
 
 async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Optional[int]:
@@ -271,8 +274,12 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         elif text == "🗑 Удалить задачу":
             return await ask_delete_tasks(update, context)
         elif text == "🧹 Удалить выполненные":
-            user_id = update.message.from_user.id
-            delete_completed_tasks_for_user(user_id)
+            if update.effective_chat.type in ['group', 'supergroup']:
+                owner_id = update.effective_chat.id
+            else:
+                owner_id = update.effective_user.id
+            delete_completed_tasks_for_user(owner_id)
+
             await update.message.reply_text("Выполненные задачи удалены.", reply_markup=get_main_keyboard())
             
             # Проверяем, находимся ли мы в режиме просмотра категории
@@ -308,17 +315,22 @@ async def ask_delete_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 async def delete_tasks_by_numbers(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
     Удаляет задачи по номерам, указанным пользователем
-    
+
     Args:
         update: Объект обновления Telegram
         context: Контекст бота
-        
+
     Returns:
         int: Следующее состояние разговора
     """
-    user_id = update.message.from_user.id
+    # Определяем owner_id для группы или лички
+    if update.effective_chat.type in ['group', 'supergroup']:
+        owner_id = update.effective_chat.id
+    else:
+        owner_id = update.effective_user.id
+
     input_text = update.message.text.strip()
-    
+
     # Проверяем, нажал ли пользователь кнопку отмены
     if input_text == "❌ Отмена":
         await update.message.reply_text(
@@ -326,17 +338,17 @@ async def delete_tasks_by_numbers(update: Update, context: ContextTypes.DEFAULT_
             reply_markup=get_main_keyboard()
         )
         return ConversationHandler.END
-    
+
     # Список текстов кнопок, которые не должны обрабатываться как номера задач
     MENU_BUTTONS = ["📋 Мои задачи", "🧹 Удалить выполненные", "❌ Отмена"]
-    
+
     if input_text in MENU_BUTTONS:
         # Если это кнопка меню, обрабатываем её как нажатие кнопки
         await main_menu_handler(update, context)
         return ConversationHandler.END
-    
+
     input_text = input_text.replace(' ', '')
-    tasks = get_tasks_db(user_id, only_open=False)
+    tasks = get_tasks_db(owner_id, only_open=False)
     to_delete = set()
 
     # Разбиваем по запятой
@@ -348,6 +360,10 @@ async def delete_tasks_by_numbers(update: Update, context: ContextTypes.DEFAULT_
                 for n in range(start, end + 1):
                     if 1 <= n <= len(tasks):
                         to_delete.add(tasks[n-1][0])
+        elif part.isdigit():
+            n = int(part)
+            if 1 <= n <= len(tasks):
+                to_delete.add(tasks[n-1][0])
 
     if not to_delete:
         await update.message.reply_text(
@@ -356,117 +372,124 @@ async def delete_tasks_by_numbers(update: Update, context: ContextTypes.DEFAULT_
         )
         return ConversationHandler.END
 
+    deleted_count = 0
     for task_id in to_delete:
-        delete_task_db(task_id, user_id)
-    
-    await update.message.reply_text("Выбранные задачи удалены.", reply_markup=get_main_keyboard())
+        try:
+            delete_task_db(task_id, owner_id)
+            deleted_count += 1
+        except Exception as e:
+            logger.error(f"Ошибка удаления задачи {task_id}: {e}")
+
+    if deleted_count > 0:
+        await update.message.reply_text(f"Удалено {deleted_count} задач.", reply_markup=get_main_keyboard())
+    else:
+        await update.message.reply_text("Не удалось удалить задачи.", reply_markup=get_main_keyboard())
+
     await list_tasks(update, context)
     return ConversationHandler.END
 
 async def task_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Обрабатывает действия с задачами через inline-кнопки
-    
+
     Args:
         update: Объект обновления Telegram
         context: Контекст бота
     """
     query = update.callback_query
     data = query.data
-    user_id = query.from_user.id
-    
+
+    # Определяем owner_id для группы или лички
+    if update.effective_chat.type in ['group', 'supergroup']:
+        owner_id = update.effective_chat.id
+    else:
+        owner_id = query.from_user.id
+
     if data == "divider":
-        # Игнорируем нажатия на разделитель
         await query.answer()
         return
-    
+
     if data == "toggle_all":
-        tasks = get_tasks_db(user_id, only_open=False)
+        tasks = get_tasks_db(owner_id, only_open=False)
         if not tasks:
             await query.answer("Нет задач для изменения")
             return
-        
-        # Проверяем, есть ли невыполненные задачи
+
         has_incomplete = any(not task[2] for task in tasks)
-        
-        # Если есть невыполненные, отмечаем все как выполненные
-        # Иначе снимаем отметки со всех
         new_status = 1 if has_incomplete else 0
-        
+
         for task_id, _, _, _, _ in tasks:
             toggle_task_status_db(task_id, new_status)
-        
-        await query.answer("Статус всех задач изменен")
+
+        await query.answer("Статус всех задач изменён")
         await list_tasks(update, context)
         return
-    
+
     if data == "priority_mode":
-        # Переходим в режим изменения приоритетов
         await show_priority_menu(update, context)
         return
-    
+
     if data == "category_mode":
-        # Переходим в режим просмотра категорий
         await show_categories_menu(update, context)
         return
 
     if data == "reminder_mode":
-        # Переходим в режим управления напоминаниями
         await show_reminders_menu(update, context)
         return
-    
+
     if data.startswith("reminder_options_"):
-        # Показываем опции для напоминания
         await show_reminder_options(update, context)
         return
-    
+
     if data.startswith("delete_reminder_"):
-        # Удаляем напоминание
         await delete_reminder(update, context)
         return
-    
+
     if data.startswith("snooze_reminder_"):
-        # Откладываем напоминание
         await snooze_reminder(update, context)
         return
-    
+
     if data.startswith("filter_category_"):
-        # Показываем задачи выбранной категории
         await show_tasks_by_category(update, context)
         return
-    
+
     if data.startswith("set_priority_"):
-        # Показываем опции приоритета для выбранной задачи
         await show_priority_options(update, context)
         return
-    
+
     if data.startswith("priority_"):
-        # Устанавливаем приоритет для задачи
         await set_task_priority(update, context)
         return
-    
+
     if data == "back_to_list":
-        # Сбрасываем флаг активного просмотра категории
         if hasattr(context, 'user_data'):
             context.user_data['active_category_view'] = False
-        # Возвращаемся к списку задач
         await list_tasks(update, context)
         return
 
     if data.startswith("toggle_"):
         task_id = int(data.split("_")[1])
-        toggle_task_status_db(task_id)
-        await query.answer("Статус задачи изменен")
+        success = toggle_task_db(task_id, owner_id)
         
-        # Проверяем, находимся ли мы в режиме просмотра категории
-        if hasattr(context, 'user_data') and context.user_data.get('active_category_view', False):
-            # Обновляем список задач в текущей категории
-            await show_tasks_by_category(update, context)
-            return
+        if success:
+            await query.answer("Статус задачи изменён")
         else:
-            # В остальных случаях показываем общий список задач
-            await list_tasks(update, context)
+            await query.answer("Ошибка при изменении статуса")
             return
+
+        # Обновляем клавиатуру сразу
+        try:
+            keyboard_markup = get_task_list_markup(owner_id)
+            await query.edit_message_reply_markup(reply_markup=keyboard_markup)
+        except Exception as e:
+            if "Message is not modified" not in str(e):
+                logger.error(f"Ошибка обновления клавиатуры: {e}")
+
+        if hasattr(context, 'user_data') and context.user_data.get('active_category_view', False):
+            await show_tasks_by_category(update, context)
+        else:
+            await list_tasks(update, context)
+        return
 
 async def show_priority_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
@@ -479,8 +502,11 @@ async def show_priority_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
     query = update.callback_query
     await query.answer()
     
-    user_id = query.from_user.id
-    tasks = get_tasks_db(user_id, only_open=False)
+    if update.effective_chat.type in ['group', 'supergroup']:
+        owner_id = update.effective_chat.id
+    else:
+        owner_id = query.from_user.id
+    tasks = get_tasks_db(owner_id, only_open=False)
     
     keyboard = []
     keyboard.append([
@@ -602,9 +628,12 @@ async def show_categories_menu(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.callback_query
     await query.answer()
     
-    user_id = query.from_user.id
-    tasks = get_tasks_db(user_id, only_open=False)
-    
+    if update.effective_chat.type in ['group', 'supergroup']:
+        owner_id = update.effective_chat.id
+    else:
+        owner_id = query.from_user.id
+    tasks = get_tasks_db(owner_id, only_open=False)
+
     # Собираем все категории из задач
     categories = {}
     for task_id, text, done, priority, reminder_time in tasks:
@@ -665,8 +694,11 @@ async def show_tasks_by_category(update: Update, context: ContextTypes.DEFAULT_T
         context: Контекст бота
     """
     query = update.callback_query
-    user_id = update.effective_user.id
-    
+    if update.effective_chat.type in ['group', 'supergroup']:
+        owner_id = update.effective_chat.id
+    else:
+        owner_id = update.effective_user.id  # или update.effective_user.id, или query.from_user.id — смотри по месту
+
     # Извлекаем категорию из callback_data или из сохраненного контекста
     if query and hasattr(query, 'data') and query.data.startswith("filter_category_"):
         category = query.data.split('_')[2]
@@ -693,7 +725,7 @@ async def show_tasks_by_category(update: Update, context: ContextTypes.DEFAULT_T
     # Сбрасываем флаг активного списка задач
     context.user_data['active_task_list'] = False
 
-    tasks = get_tasks_db(user_id, only_open=False)
+    tasks = get_tasks_db(owner_id, only_open=False)
     
     keyboard = []
     keyboard.append([
@@ -793,8 +825,12 @@ async def show_reminders_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     await query.answer()
     
-    user_id = query.from_user.id
-    tasks_with_reminders = get_tasks_with_reminders(user_id)
+    if update.effective_chat.type in ['group', 'supergroup']:
+        owner_id = update.effective_chat.id
+    else:
+        owner_id = update.effective_user.id # или update.effective_user.id, или query.from_user.id — смотри по месту
+
+    tasks_with_reminders = get_tasks_with_reminders(owner_id)
     
     keyboard = []
     keyboard.append([
@@ -942,7 +978,7 @@ async def send_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
         context: Контекст бота с данными задачи
     """
     job = context.job
-    task_id, user_id, task_text = job.data
+    task_id, owner_id, task_text = job.data
     
     # Создаем клавиатуру для напоминания с тремя вариантами
     keyboard = [
@@ -967,7 +1003,7 @@ async def send_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
     ]
     
     await context.bot.send_message(
-        chat_id=user_id,
+        chat_id=owner_id,
         text=f"🔔 Напоминание: {task_text}",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )

@@ -24,8 +24,8 @@ def get_cancel_keyboard() -> ReplyKeyboardMarkup:
         one_time_keyboard=True
     )
 
-def get_task_list_markup(user_id: int) -> Optional[InlineKeyboardMarkup]:
-    tasks = get_tasks_db(user_id, only_open=False)
+def get_task_list_markup(owner_id: int) -> Optional[InlineKeyboardMarkup]:
+    tasks = get_tasks_db(owner_id, only_open=False)
     keyboard = []
     total = len(tasks)
     done_count = sum(1 for task in tasks if task[2])

@@ -28,8 +28,11 @@ async def send_reminder_notification(context: CallbackContext) -> None:
             )
             logger.info(f"Отправлено напоминание пользователю {user_id} о задаче {task_id}")
             set_reminder(task_id, None)
-            logger.info(f"Напоминание помечено как отправленное: {task_id}")
         except Exception as e:
-            logger.error(f"Ошибка при отправке напоминания: {e}")
+            if "bot can't initiate conversation" in str(e) or "Forbidden" in str(e):
+                logger.warning(f"Пользователь {user_id} заблокировал бота, удаляем напоминание для задачи {task_id}")
+                set_reminder(task_id, None)  # Удаляем напоминание
+            else:
+                logger.error(f"Ошибка при отправке напоминания: {e}")
 
 # Убраны лишние импорты, блок с ручным sqlite3 заменён на вызов set_reminder
