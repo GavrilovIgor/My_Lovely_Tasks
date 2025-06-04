@@ -12,7 +12,7 @@ from database import (
     delete_completed_tasks_for_user, get_tasks_with_reminders, set_reminder,
     update_task_priority, toggle_task_db
 )
-from keyboards import get_main_keyboard, get_task_list_markup, get_cancel_keyboard
+from keyboards import get_main_keyboard, get_task_list_markup, get_cancel_keyboard, priority_emoji
 from utils import extract_categories
 
 logger = logging.getLogger(__name__)
@@ -452,6 +452,22 @@ async def task_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await set_task_priority(update, context)
         return
 
+    if data.startswith('category_priority_mode_'):
+        await show_category_priority(update, context)
+        return
+
+    if data.startswith('category_reminder_mode_'):
+        await show_category_reminder(update, context)
+        return
+
+    if data.startswith('category_set_priority_'):
+        await set_category_priority(update, context)
+        return
+
+    if data.startswith('toggle_all_category_'):
+        await toggle_all_category_tasks(update, context)
+        return
+
     if data == "back_to_list":
         if hasattr(context, 'user_data'):
             context.user_data['active_category_view'] = False
@@ -591,17 +607,11 @@ async def show_priority_options(update: Update, context: ContextTypes.DEFAULT_TY
     )
 
 async def set_task_priority(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    Устанавливает приоритет для задачи
-    
-    Args:
-        update: Объект обновления Telegram
-        context: Контекст бота
-    """
+    """Установить приоритет задачи"""
     query = update.callback_query
     await query.answer()
     
-    # Извлекаем ID задачи и приоритет из callback_data
+    # Парсим callback_data: priority_taskid_priority
     parts = query.data.split('_')
     task_id = int(parts[1])
     priority = int(parts[2])
@@ -609,8 +619,13 @@ async def set_task_priority(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     # Обновляем приоритет в базе данных
     update_task_priority(task_id, priority)
     
-    # Возвращаемся к меню расстановки приоритетов вместо списка задач
-    await show_priority_menu(update, context)
+    # Проверяем, откуда пришли (из категории или из общего меню приоритетов)
+    if hasattr(context, 'user_data') and context.user_data.get('active_category_view', False):
+        # Возвращаемся к списку задач категории
+        await show_tasks_by_category(update, context)
+    else:
+        # Возвращаемся к общему меню приоритетов
+        await show_priority_menu(update, context)
 
 async def show_categories_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
@@ -677,133 +692,92 @@ async def show_categories_menu(update: Update, context: ContextTypes.DEFAULT_TYP
     )
 
 async def show_tasks_by_category(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    Показывает задачи по выбранной категории
-    
-    Args:
-        update: Объект обновления Telegram
-        context: Контекст бота
-    """
+    """Показать задачи определенной категории"""
     query = update.callback_query
     if update.effective_chat.type in ['group', 'supergroup']:
         owner_id = update.effective_chat.id
     else:
-        owner_id = update.effective_user.id  # или update.effective_user.id, или query.from_user.id — смотри по месту
-
-    # Извлекаем категорию из callback_data или из сохраненного контекста
-    if query and hasattr(query, 'data') and query.data.startswith("filter_category_"):
-        category = query.data.split('_')[2]
+        owner_id = update.effective_user.id if not query else query.from_user.id
+    
+    # Получаем категорию из callback_data или из context
+    if query and hasattr(query, 'data') and query.data.startswith('filter_category_'):
+        category = query.data.split('_', 2)[2]
         await query.answer()
     elif hasattr(context, 'user_data') and 'current_view' in context.user_data and context.user_data['current_view']['type'] == 'category':
         category = context.user_data['current_view']['category']
     else:
-        # Если категория не определена, возвращаемся к списку категорий
-        if query:
-            await query.answer()
-            await show_categories_menu(update, context)
         return
     
-    # Сохраняем текущую категорию в контексте
-    if not hasattr(context, 'user_data'):
-        context.user_data = {}
-    
-    context.user_data['current_view'] = {
-        'type': 'category',
-        'category': category
-    }
-    # Устанавливаем флаг активного просмотра категории
-    context.user_data['active_category_view'] = True
-    # Сбрасываем флаг активного списка задач
-    context.user_data['active_task_list'] = False
-
+    # Получаем все задачи пользователя
     tasks = get_tasks_db(owner_id, only_open=False)
     
-    keyboard = []
-    keyboard.append([
-        InlineKeyboardButton(
-            text=f"Задачи в категории #{category}:",
-            callback_data="divider"
-        )
-    ])
-    
-    # Словарь эмодзи для приоритетов
-    priority_emoji = {
-        3: "🔴", # Высокий
-        2: "🟡", # Средний
-        1: "🔵"  # Низкий
-    }
-    
     # Фильтруем задачи по категории
-    found = False
-    for task_id, text, done, priority, reminder_time in tasks:
+    from utils import extract_categories
+    filtered_tasks = []
+    for task in tasks:
+        task_id, text, done, priority, reminder_time = task
         task_categories = extract_categories(text)
         if category in task_categories:
-            found = True
-            # Формируем статус задачи
-            status = "✅" if done else "☐"
-            
-            # Формируем текст задачи
-            task_text = f"{status} "
-            
-            # Добавляем приоритет только если он установлен (не 0)
-            if priority > 0:
-                priority_icon = priority_emoji.get(priority, "")
-                task_text += f"{priority_icon} "
-            
-            # Добавляем колокольчик, если есть напоминание
-            if reminder_time:
-                task_text += "🔔 "
-            
-            # Добавляем текст задачи
-            task_text += text
-            
-            keyboard.append([
-                InlineKeyboardButton(
-                    text=task_text,
-                    callback_data=f"toggle_{task_id}",
-                )
-            ])
+            filtered_tasks.append(task)
     
-    if not found:
-        keyboard.append([
-            InlineKeyboardButton(
-                text="В этой категории нет задач",
-                callback_data="divider"
-            )
-        ])
+    # Подсчитываем выполненные задачи
+    done_count = sum(1 for task in filtered_tasks if task[2])  # task[2] это done
+    total_count = len(filtered_tasks)
     
+    # Создаем клавиатуру
+    keyboard = []
+    
+    # Добавляем кнопку статуса выполнения с возможностью переключения всех задач
     keyboard.append([
-        InlineKeyboardButton(
-            text="↩️ Выбрать другую категорию",
-            callback_data="category_mode"
-        )
+        InlineKeyboardButton(text=f"🔄 [ {done_count}/{total_count} выполнено ]", callback_data=f"toggle_all_category_{category}")
     ])
     
-    message_text = f"Категория #{category}:"
+    # Добавляем кнопки управления категорией
+    keyboard.append([
+        InlineKeyboardButton(text="🔢 [Определить приоритет]", callback_data=f"category_priority_mode_{category}"),
+        InlineKeyboardButton(text="⏰ [Напоминания]", callback_data=f"category_reminder_mode_{category}")
+    ])
     
-    # Если это callback_query, редактируем существующее сообщение
-    if query:
-        try:
-            await query.edit_message_text(
-                text=message_text,
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-        except Exception as e:
-            # Если сообщение не изменилось, телеграм выдаст ошибку
-            # В этом случае просто игнорируем ее
-            logger.info(f"Не удалось обновить сообщение: {e}")
-            # Если не удалось отредактировать, отправляем новое
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text=message_text,
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
+    keyboard.append([InlineKeyboardButton(text="─" * 30, callback_data="divider")])
+    
+    # Добавляем задачи категории
+    if not filtered_tasks:
+        keyboard.append([InlineKeyboardButton(text="📝 В этой категории нет задач", callback_data="divider")])
     else:
-        # Если это не callback_query (например, команда), отправляем новое сообщение
-        await update.effective_message.reply_text(
-            text=message_text,
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        for task_id, text, done, priority, reminder_time in filtered_tasks:
+            status = "✅" if done else "⭕"
+            
+            # Добавляем иконку приоритета
+            task_text = f"{status}"
+            if priority > 0:
+                priority_icon = f"{priority_emoji.get(priority, '')}"
+                task_text = f"{priority_icon}{status}"
+            
+            # Добавляем иконку напоминания
+            if reminder_time:
+                task_text = f"{task_text}⏰"
+            
+            # Обрезаем текст если слишком длинный
+            short_text = text[:30] + "..." if len(text) > 30 else text
+            task_text = f"{task_text} {short_text}"
+            
+            keyboard.append([InlineKeyboardButton(text=task_text, callback_data=f"toggle_{task_id}")])
+    
+    keyboard.append([InlineKeyboardButton(text="🔙 Назад к категориям", callback_data="category_mode")])
+    
+    # Сохраняем текущий вид в context
+    context.user_data['active_category_view'] = True
+    if not hasattr(context, 'user_data'):
+        context.user_data = {}
+    context.user_data['current_view'] = {'type': 'category', 'category': category}
+    
+    message_text = f"📂 Категория #{category}:\n\nЗадач в категории: {total_count}\nВыполнено: {done_count}"
+    
+    if query:
+        await query.edit_message_text(text=message_text, reply_markup=InlineKeyboardMarkup(keyboard))
+    else:
+        await update.message.reply_text(text=message_text, reply_markup=InlineKeyboardMarkup(keyboard))
+
 
 async def show_reminders_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
@@ -1081,3 +1055,190 @@ def get_task_text_by_id(task_id: int) -> Optional[str]:
     
     return result[0] if result else None
 
+async def show_category_priority(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Показать меню приоритетов для категории"""
+    query = update.callback_query
+    await query.answer()
+    
+    category = query.data.split('_', 3)[3]
+    
+    if update.effective_chat.type in ['group', 'supergroup']:
+        owner_id = update.effective_chat.id
+    else:
+        owner_id = query.from_user.id
+    
+    # Получаем задачи категории
+    tasks = get_tasks_db(owner_id, only_open=False)
+    from utils import extract_categories
+    
+    category_tasks = []
+    for task in tasks:
+        task_id, text, done, priority, reminder_time = task
+        task_categories = extract_categories(text)
+        if category in task_categories:
+            category_tasks.append(task)
+    
+    keyboard = []
+    keyboard.append([InlineKeyboardButton(text="─" * 30, callback_data="divider")])
+    
+    # Группируем задачи по приоритету
+    priority_groups = {3: [], 2: [], 1: [], 0: []}
+    for task in category_tasks:
+        task_id, text, done, priority, reminder_time = task
+        priority_groups[priority].append(task)
+    
+    priority_names = {3: "🔴 Высокий", 2: "🟡 Средний", 1: "🔵 Низкий", 0: "⚪ Без приоритета"}
+    
+    for priority_level in [3, 2, 1, 0]:
+        tasks_in_priority = priority_groups[priority_level]
+        if tasks_in_priority:
+            keyboard.append([InlineKeyboardButton(
+                text=f"{priority_names[priority_level]} ({len(tasks_in_priority)})", 
+                callback_data="divider"
+            )])
+            
+            for task_id, text, done, priority, reminder_time in tasks_in_priority:
+                status = "✅" if done else "⭕"
+                short_text = text[:25] + "..." if len(text) > 25 else text
+                task_text = f"{status} {short_text}"
+                
+                keyboard.append([InlineKeyboardButton(
+                    text=task_text, 
+                    callback_data=f"category_set_priority_{category}_{task_id}"
+                )])
+    
+    keyboard.append([InlineKeyboardButton(text="🔙 Назад к категории", callback_data=f"filter_category_{category}")])
+    
+    await query.edit_message_text(
+        text=f"🔢 Управление приоритетами в категории #{category}:\n\nВыберите задачу для изменения приоритета:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def show_category_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Показать напоминания для категории"""
+    query = update.callback_query
+    await query.answer()
+    
+    category = query.data.split('_', 3)[3]
+    
+    if update.effective_chat.type in ['group', 'supergroup']:
+        owner_id = update.effective_chat.id
+    else:
+        owner_id = query.from_user.id
+    
+    # Получаем задачи категории с напоминаниями
+    tasks = get_tasks_db(owner_id, only_open=False)
+    from utils import extract_categories
+    
+    category_tasks_with_reminders = []
+    category_tasks_without_reminders = []
+    
+    for task in tasks:
+        task_id, text, done, priority, reminder_time = task
+        task_categories = extract_categories(text)
+        if category in task_categories:
+            if reminder_time:
+                category_tasks_with_reminders.append(task)
+            else:
+                category_tasks_without_reminders.append(task)
+    
+    keyboard = []
+    keyboard.append([InlineKeyboardButton(text="─" * 30, callback_data="divider")])
+    
+    if category_tasks_with_reminders:
+        keyboard.append([InlineKeyboardButton(text="⏰ С напоминаниями:", callback_data="divider")])
+        for task_id, text, done, priority, reminder_time in category_tasks_with_reminders:
+            status = "✅" if done else "⭕"
+            short_text = text[:20] + "..." if len(text) > 20 else text
+            task_text = f"{status}⏰ {short_text}"
+            
+            keyboard.append([InlineKeyboardButton(
+                text=task_text, 
+                callback_data=f"reminder_options_{task_id}"
+            )])
+    
+    if category_tasks_without_reminders:
+        keyboard.append([InlineKeyboardButton(text="📝 Без напоминаний:", callback_data="divider")])
+        for task_id, text, done, priority, reminder_time in category_tasks_without_reminders[:5]:  # Показываем только первые 5
+            status = "✅" if done else "⭕"
+            short_text = text[:20] + "..." if len(text) > 20 else text
+            task_text = f"{status} {short_text}"
+            
+            keyboard.append([InlineKeyboardButton(
+                text=task_text, 
+                callback_data=f"reminder_options_{task_id}"
+            )])
+    
+    keyboard.append([InlineKeyboardButton(text="🔙 Назад к категории", callback_data=f"filter_category_{category}")])
+    
+    total_with_reminders = len(category_tasks_with_reminders)
+    total_without_reminders = len(category_tasks_without_reminders)
+    
+    await query.edit_message_text(
+        text=f"⏰ Напоминания в категории #{category}:\n\n"
+             f"С напоминаниями: {total_with_reminders}\n"
+             f"Без напоминаний: {total_without_reminders}\n\n"
+             f"Выберите задачу для настройки напоминания:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def set_category_priority(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Установить приоритет для задачи из категории"""
+    query = update.callback_query
+    await query.answer()
+    
+    # Парсим callback_data: category_set_priority_category_taskid
+    parts = query.data.split('_')
+    category = parts[3]
+    task_id = int(parts[4])
+    
+    keyboard = [
+        [InlineKeyboardButton(text="🔴 Высокий", callback_data=f"priority_{task_id}_3")],
+        [InlineKeyboardButton(text="🟡 Средний", callback_data=f"priority_{task_id}_2")],
+        [InlineKeyboardButton(text="🔵 Низкий", callback_data=f"priority_{task_id}_1")],
+        [InlineKeyboardButton(text="⚪ Убрать приоритет", callback_data=f"priority_{task_id}_0")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data=f"category_priority_mode_{category}")]
+    ]
+    
+    await query.edit_message_text(
+        text="🔢 Выберите приоритет для задачи:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def toggle_all_category_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Переключить статус всех задач в категории"""
+    query = update.callback_query
+    await query.answer()
+    
+    category = query.data.split('_', 3)[3]
+    
+    if update.effective_chat.type in ['group', 'supergroup']:
+        owner_id = update.effective_chat.id
+    else:
+        owner_id = query.from_user.id
+    
+    # Получаем задачи категории
+    tasks = get_tasks_db(owner_id, only_open=False)
+    from utils import extract_categories
+    
+    category_tasks = []
+    for task in tasks:
+        task_id, text, done, priority, reminder_time = task
+        task_categories = extract_categories(text)
+        if category in task_categories:
+            category_tasks.append(task)
+    
+    if not category_tasks:
+        await query.answer("В этой категории нет задач")
+        return
+    
+    # Определяем новый статус (если есть незавершенные - завершаем все, иначе - снимаем завершение со всех)
+    has_incomplete = any(not task[2] for task in category_tasks)
+    new_status = 1 if has_incomplete else 0
+    
+    # Обновляем статус всех задач категории
+    for task_id, text, done, priority, reminder_time in category_tasks:
+        toggle_task_status_db(task_id, new_status)
+    
+    # Возвращаемся к просмотру категории
+    await show_tasks_by_category(update, context)
