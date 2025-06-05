@@ -34,8 +34,10 @@ from database import init_db
 from handlers import (
     start, help_command, list_tasks, add, save_task, 
     task_action, add_task_from_text, main_menu_handler,
-    ask_delete_tasks, delete_tasks_by_numbers, send_reminder
+    ask_delete_tasks, delete_tasks_by_numbers, send_reminder,
+    SETTING_CUSTOM_REMINDER, save_custom_reminder, start_custom_reminder
 )
+
 from jobs import send_reminder_notification
 
 menu_filter = (
@@ -68,14 +70,31 @@ def main():
     init_db()
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("add", add)],
-        states={ADDING_TASK: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_task)]},
-        fallbacks=[]
+        states={
+            ADDING_TASK: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_task)],
+        },
+        fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)]
     )
+
     delete_conv_handler = ConversationHandler(
-        entry_points=[],
-        states={DELETING_TASKS: [MessageHandler(filters.TEXT & ~filters.COMMAND, delete_tasks_by_numbers)]},
-        fallbacks=[]
+        entry_points=[MessageHandler(filters.Regex(r"^🗑 Удалить задачи$"), ask_delete_tasks)],
+        states={
+            DELETING_TASKS: [MessageHandler(filters.TEXT & ~filters.COMMAND, delete_tasks_by_numbers)],
+        },
+        fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)]
+)
+
+    from handlers import SETTING_CUSTOM_REMINDER, save_custom_reminder
+
+    reminder_conv_handler = ConversationHandler(
+        entry_points=[],  # Вход через callback
+        states={
+            SETTING_CUSTOM_REMINDER: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_custom_reminder)],
+        },
+        fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)]
     )
+
+    app.add_handler(reminder_conv_handler)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("list", list_tasks))

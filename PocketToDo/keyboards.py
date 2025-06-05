@@ -38,7 +38,8 @@ def get_task_list_markup(owner_id: int) -> Optional[InlineKeyboardMarkup]:
     keyboard.append([InlineKeyboardButton(text=f"#️⃣ [ Категории ]", callback_data="category_mode")])
     keyboard.append([InlineKeyboardButton(text=f"🔢 [ Определить приоритет ]", callback_data="priority_mode")])
     keyboard.append([InlineKeyboardButton(text=f"🆙 [ Напоминания ]", callback_data="reminder_mode")])
-    keyboard.append([InlineKeyboardButton(text="▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂", callback_data="divider")])
+    keyboard.append([InlineKeyboardButton(text="─" * 25, callback_data="divider")])
+
 
     for task_id, text, done, priority, reminder_time in tasks:
         status = "✅" if done else "☐"

@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 # Состояния для ConversationHandler
 ADDING_TASK = 1
 DELETING_TASKS = 2
+SETTING_CUSTOM_REMINDER = 3
 
 # Единый список кнопок меню
 MENU_BUTTONS = ["📋 Мои задачи", "🧹 Удалить выполненные", "❌ Отмена"]
@@ -440,6 +441,10 @@ async def task_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await snooze_reminder(update, context)
         return
 
+    if data.startswith('custom_reminder_'):
+        await start_custom_reminder(update, context)
+        return
+
     if data.startswith("filter_category_"):
         await show_tasks_by_category(update, context)
         return
@@ -736,7 +741,7 @@ async def show_tasks_by_category(update: Update, context: ContextTypes.DEFAULT_T
         InlineKeyboardButton(text="🔔 [ Напоминания ]", callback_data=f"category_reminder_mode_{category}")
     ])
     
-    keyboard.append([InlineKeyboardButton(text="─" * 30, callback_data="divider")])
+    keyboard.append([InlineKeyboardButton(text="─" * 25, callback_data="divider")])
     
     # Добавляем задачи категории
     if not filtered_tasks:
@@ -774,138 +779,98 @@ async def show_tasks_by_category(update: Update, context: ContextTypes.DEFAULT_T
         await update.message.reply_text(text=message_text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def show_reminders_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    Показывает меню управления напоминаниями
-    
-    Args:
-        update: Объект обновления Telegram
-        context: Контекст бота
-    """
+    """Показать меню напоминаний"""
     query = update.callback_query
     await query.answer()
     
     if update.effective_chat.type in ['group', 'supergroup']:
         owner_id = update.effective_chat.id
     else:
-        owner_id = update.effective_user.id # или update.effective_user.id, или query.from_user.id — смотри по месту
-
-    tasks_with_reminders = get_tasks_with_reminders(owner_id)
+        owner_id = update.effective_user.id if not query else query.from_user.id
+    
+    # Получаем все задачи пользователя
+    tasks = get_tasks_db(owner_id, only_open=False)
+    
+    tasks_with_reminders = []
+    tasks_without_reminders = []
+    
+    for task in tasks:
+        task_id, text, done, priority, reminder_time = task
+        if reminder_time:
+            tasks_with_reminders.append(task)
+        else:
+            tasks_without_reminders.append(task)
     
     keyboard = []
-    keyboard.append([
-        InlineKeyboardButton(
-            text="Задачи с напоминаниями:",
-            callback_data="divider"
-        )
-    ])
+    keyboard.append([InlineKeyboardButton(text="─" * 25, callback_data="divider")])
     
-    if not tasks_with_reminders:
-        keyboard.append([
-            InlineKeyboardButton(
-                text="У вас нет задач с напоминаниями",
-                callback_data="divider"
-            )
-        ])
-        keyboard.append([
-            InlineKeyboardButton(
-                text="Добавьте время к задаче для создания напоминания",
-                callback_data="divider"
-            )
-        ])
-    else:
-        # Словарь эмодзи для приоритетов
-        priority_emoji = {
-            3: "🔴", # Высокий
-            2: "🟡", # Средний
-            1: "🔵"  # Низкий
-        }
-        
+    if tasks_with_reminders:
+        keyboard.append([InlineKeyboardButton(text="🔔 С напоминаниями:", callback_data="divider")])
         for task_id, text, done, priority, reminder_time in tasks_with_reminders:
-            # Преобразуем строку времени в объект datetime
-            if reminder_time:
-                reminder_dt = datetime.strptime(reminder_time, '%Y-%m-%d %H:%M:%S')
-                reminder_str = reminder_dt.strftime('%d.%m %H:%M')
-            else:
-                reminder_str = "Нет времени"
-            
-            # Формируем статус задачи
             status = "✅" if done else "☐"
             
-            # Добавляем приоритет если он установлен
-            priority_icon = ""
+            # Добавляем приоритет ПОСЛЕ статуса, потом напоминание
+            task_text = f"{status}"
             if priority > 0:
-                priority_icon = f"{priority_emoji.get(priority, '')} "
+                priority_icon = f"{priority_emoji.get(priority, '')}"
+                task_text = f"{status}{priority_icon}"
             
-            task_text = f"{status} {priority_icon}[{reminder_str}] {text}"
+            task_text = f"{task_text}🔔 {text}"
             
-            keyboard.append([
-                InlineKeyboardButton(
-                    text=task_text,
-                    callback_data=f"reminder_options_{task_id}"
-                )
-            ])
+            keyboard.append([InlineKeyboardButton(
+                text=task_text, 
+                callback_data=f"reminder_options_{task_id}"
+            )])
     
-    keyboard.append([
-        InlineKeyboardButton(
-            text="↩️ Назад к списку задач",
-            callback_data="back_to_list"
-        )
-    ])
+    if tasks_without_reminders:
+        keyboard.append([InlineKeyboardButton(text="📝 Без напоминаний:", callback_data="divider")])
+        for task_id, text, done, priority, reminder_time in tasks_without_reminders:
+            status = "✅" if done else "☐"
+            
+            # Добавляем приоритет ПОСЛЕ статуса
+            task_text = f"{status}"
+            if priority > 0:
+                priority_icon = f"{priority_emoji.get(priority, '')}"
+                task_text = f"{status}{priority_icon}"
+            
+            task_text = f"{task_text} {text}"
+            
+            keyboard.append([InlineKeyboardButton(
+                text=task_text, 
+                callback_data=f"reminder_options_{task_id}"
+            )])
+    
+    keyboard.append([InlineKeyboardButton(text="↩️ Назад к задачам", callback_data="back_to_list")])
+    
+    total_with_reminders = len(tasks_with_reminders)
+    total_without_reminders = len(tasks_without_reminders)
     
     await query.edit_message_text(
-        text="Управление напоминаниями:",
+        text=f"🔔 Управление напоминаниями:\n\n"
+             f"С напоминаниями: {total_with_reminders}\n"
+             f"Без напоминаний: {total_without_reminders}\n\n"
+             f"Выберите задачу для настройки напоминания:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 async def show_reminder_options(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    Показывает опции для напоминания
-    
-    Args:
-        update: Объект обновления Telegram
-        context: Контекст бота
-    """
+    """Показать опции напоминания для задачи"""
     query = update.callback_query
     await query.answer()
     
-    # Извлекаем ID задачи из callback_data
     task_id = int(query.data.split('_')[2])
     
     keyboard = [
-        [
-            InlineKeyboardButton(
-                text="❌ Удалить напоминание",
-                callback_data=f"delete_reminder_{task_id}"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text="⏰ Отложить на 30 минут",
-                callback_data=f"snooze_reminder_{task_id}_30"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text="⏰ Отложить на 1 час",
-                callback_data=f"snooze_reminder_{task_id}_60"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text="⏰ Отложить на завтра",
-                callback_data=f"snooze_reminder_{task_id}_tomorrow"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text="↩️ Назад к напоминаниям",
-                callback_data="reminder_mode"
-            )
-        ]
+        [InlineKeyboardButton(text="🔕 Удалить напоминание", callback_data=f"delete_reminder_{task_id}")],
+        [InlineKeyboardButton(text="🔔 30 минут", callback_data=f"snooze_reminder_{task_id}_30")],
+        [InlineKeyboardButton(text="🔔 1 час", callback_data=f"snooze_reminder_{task_id}_60")],
+        [InlineKeyboardButton(text="🔔 На завтра", callback_data=f"snooze_reminder_{task_id}_tomorrow")],
+        [InlineKeyboardButton(text="🕐 Произвольное время", callback_data=f"custom_reminder_{task_id}")],
+        [InlineKeyboardButton(text="↩️ Назад", callback_data="reminder_mode")]
     ]
     
     await query.edit_message_text(
-        text="Выберите действие с напоминанием:",
+        text="🔔 Выберите действие с напоминанием:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
@@ -949,7 +914,7 @@ async def send_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
         ],
         [
             InlineKeyboardButton(
-                text="⏰ Отложить на 1 час",
+                text="🔔 Отложить на 1 час",
                 callback_data=f"snooze_reminder_{task_id}_60"
             )
         ],
@@ -1073,39 +1038,25 @@ async def show_category_priority(update: Update, context: ContextTypes.DEFAULT_T
             category_tasks.append(task)
     
     keyboard = []
-    keyboard.append([InlineKeyboardButton(text="─" * 30, callback_data="divider")])
+    keyboard.append([InlineKeyboardButton(text="─" * 25, callback_data="divider")])
     
-    # Группируем задачи по приоритету
-    priority_groups = {3: [], 2: [], 1: [], 0: []}
-    for task in category_tasks:
-        task_id, text, done, priority, reminder_time = task
-        priority_groups[priority].append(task)
-    
-    priority_names = {3: "🔴 Высокий", 2: "🟡 Средний", 1: "🔵 Низкий", 0: "⚪ Без приоритета"}
-    
-    for priority_level in [3, 2, 1, 0]:
-        tasks_in_priority = priority_groups[priority_level]
-        if tasks_in_priority:
-            keyboard.append([InlineKeyboardButton(
-                text=f"{priority_names[priority_level]} ({len(tasks_in_priority)})", 
-                callback_data="divider"
-            )])
-            
-            for task_id, text, done, priority, reminder_time in tasks_in_priority:
-                status = "✅" if done else "☐"
-                
-                # Добавляем приоритет ПОСЛЕ статуса
-                task_text = f"{status}"
-                if priority > 0:
-                    priority_icon = f"{priority_emoji.get(priority, '')}"
-                    task_text = f"{status}{priority_icon}"
-                
-                task_text = f"{task_text} {text}"
-                
-                keyboard.append([InlineKeyboardButton(
-                    text=task_text, 
-                    callback_data=f"set_priority_{task_id}"
-                )])
+    # Убираем группировку, показываем все задачи подряд
+    for task_id, text, done, priority, reminder_time in category_tasks:
+        # Определяем статус задачи
+        status = "✅" if done else "☐"
+        
+        # Добавляем приоритет ПОСЛЕ статуса
+        task_text = f"{status}"
+        if priority > 0:
+            priority_icon = f"{priority_emoji.get(priority, '')}"
+            task_text = f"{status}{priority_icon}"
+        
+        task_text = f"{task_text} {text}"
+        
+        keyboard.append([InlineKeyboardButton(
+            text=task_text, 
+            callback_data=f"set_priority_{task_id}"
+        )])
     
     keyboard.append([InlineKeyboardButton(text="↩️ Назад к категории", callback_data=f"filter_category_{category}")])
     
@@ -1143,10 +1094,10 @@ async def show_category_reminder(update: Update, context: ContextTypes.DEFAULT_T
                 category_tasks_without_reminders.append(task)
     
     keyboard = []
-    keyboard.append([InlineKeyboardButton(text="─" * 30, callback_data="divider")])
+    keyboard.append([InlineKeyboardButton(text="─" * 25, callback_data="divider")])
     
     if category_tasks_with_reminders:
-        keyboard.append([InlineKeyboardButton(text="⏰ С напоминаниями:", callback_data="divider")])
+        keyboard.append([InlineKeyboardButton(text="🔔 С напоминаниями:", callback_data="divider")])
         for task_id, text, done, priority, reminder_time in category_tasks_with_reminders:
             status = "✅" if done else "☐"
             
@@ -1156,7 +1107,7 @@ async def show_category_reminder(update: Update, context: ContextTypes.DEFAULT_T
                 priority_icon = f"{priority_emoji.get(priority, '')}"
                 task_text = f"{status}{priority_icon}"
             
-            task_text = f"{task_text}⏰ {text}"
+            task_text = f"{task_text}🔔 {text}"
             
             keyboard.append([InlineKeyboardButton(
                 text=task_text, 
@@ -1187,7 +1138,7 @@ async def show_category_reminder(update: Update, context: ContextTypes.DEFAULT_T
     total_without_reminders = len(category_tasks_without_reminders)
     
     await query.edit_message_text(
-        text=f"⏰ Напоминания в категории #{category}:\n\n"
+        text=f"🔔 Напоминания в категории #{category}:\n\n"
              f"С напоминаниями: {total_with_reminders}\n"
              f"Без напоминаний: {total_without_reminders}\n\n"
              f"Выберите задачу для настройки напоминания:",
@@ -1230,3 +1181,74 @@ async def toggle_all_category_tasks(update: Update, context: ContextTypes.DEFAUL
     
     # Возвращаемся к просмотру категории
     await show_tasks_by_category(update, context)
+
+async def start_custom_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Начать ввод произвольного времени напоминания"""
+    query = update.callback_query
+    await query.answer()
+    
+    task_id = int(query.data.split('_')[2])
+    context.user_data['reminder_task_id'] = task_id
+    
+    await query.edit_message_text(
+        text="🕐 Введите время напоминания в формате:\n\n"
+             "• 15:30 - сегодня в 15:30\n"
+             "• 29.05 10:00 - 29 мая в 10:00\n"
+             "• завтра 09:00 - завтра в 09:00\n\n"
+             "Или нажмите /cancel для отмены",
+        reply_markup=None()
+    )
+    return SETTING_CUSTOM_REMINDER
+
+async def save_custom_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Сохранить произвольное время напоминания"""
+    if update.effective_chat.type in ['group', 'supergroup']:
+        owner_id = update.effective_chat.id
+    else:
+        owner_id = update.effective_user.id
+    
+    input_text = update.message.text.strip()
+    
+    if input_text == "/cancel":
+        await update.message.reply_text(
+            "❌ Установка напоминания отменена.",
+            reply_markup=get_main_keyboard()
+        )
+        return ConversationHandler.END
+    
+    # Используем функцию из utils для парсинга времени
+    from utils import extract_reminder_time
+    reminder_time, _ = extract_reminder_time(input_text)
+    
+    if not reminder_time:
+        await update.message.reply_text(
+            "❌ Неверный формат времени. Попробуйте еще раз:\n\n"
+            "• 15:30 - сегодня в 15:30\n"
+            "• 29.05 10:00 - 29 мая в 10:00\n"
+            "• завтра 09:00 - завтра в 09:00"
+        )
+        return SETTING_CUSTOM_REMINDER
+    
+    task_id = context.user_data.get('reminder_task_id')
+    if not task_id:
+        await update.message.reply_text(
+            "❌ Ошибка: задача не найдена.",
+            reply_markup=get_main_keyboard()
+        )
+        return ConversationHandler.END
+    
+    # Устанавливаем напоминание
+    set_reminder(task_id, reminder_time)
+    
+    await update.message.reply_text(
+        f"✅ Напоминание установлено на {reminder_time.strftime('%d.%m.%Y %H:%M')}",
+        reply_markup=get_main_keyboard()
+    )
+    
+    # Возвращаемся к списку задач
+    if hasattr(context, 'user_data') and context.user_data.get('active_category_view', False):
+        await show_tasks_by_category(update, context)
+    else:
+        await list_tasks(update, context)
+    
+    return ConversationHandler.END
