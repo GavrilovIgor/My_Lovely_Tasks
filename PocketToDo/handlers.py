@@ -1183,7 +1183,6 @@ async def toggle_all_category_tasks(update: Update, context: ContextTypes.DEFAUL
     await show_tasks_by_category(update, context)
 
 async def start_custom_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Начать ввод произвольного времени напоминания"""
     query = update.callback_query
     await query.answer()
     
@@ -1196,8 +1195,11 @@ async def start_custom_reminder(update: Update, context: ContextTypes.DEFAULT_TY
              "• 29.05 10:00 - 29 мая в 10:00\n"
              "• завтра 09:00 - завтра в 09:00\n\n"
              "Или нажмите /cancel для отмены",
-        reply_markup=None()
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("❌ Отмена", callback_data="back_to_list")]
+        ])  # ✅ ПРАВИЛЬНО: inline-клавиатура
     )
+    
     return SETTING_CUSTOM_REMINDER
 
 async def save_custom_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
