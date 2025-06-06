@@ -500,106 +500,76 @@ async def task_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
 async def show_priority_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    Показывает меню изменения приоритетов задач
-    
-    Args:
-        update: Объект обновления Telegram
-        context: Контекст бота
-    """
     query = update.callback_query
     await query.answer()
+    
+    if not hasattr(context, 'user_data'):
+        context.user_data = {}
     
     if update.effective_chat.type in ['group', 'supergroup']:
         owner_id = update.effective_chat.id
     else:
         owner_id = query.from_user.id
+    
     tasks = get_tasks_db(owner_id, only_open=False)
     
     keyboard = []
-    keyboard.append([
-        InlineKeyboardButton(
-            text="Какой задаче задать приоритет?",
-            callback_data="divider"
-        )
-    ])
     
-    # Словарь эмодзи для приоритетов
-    priority_emoji = {
-        3: "🔴", # Высокий
-        2: "🟡", # Средний
-        1: "🔵"  # Низкий
-    }
+    priority_emoji = {3: "🔴", 2: "🟡", 1: "🔵"}
     
     for i, (task_id, text, done, priority, reminder_time) in enumerate(tasks, 1):
-
-        # Добавляем текущий приоритет в отображение
-        priority_icon = ""
+        # Формируем текст задачи с приоритетом
+        status = "✅" if done else "☐"
         if priority > 0:
-            priority_icon = f"{priority_emoji.get(priority, '')} "
+            priority_icon = priority_emoji.get(priority, "")
+            task_text = f"{status} {priority_icon} {text}"
+        else:
+            task_text = f"{status} {text}"
         
-        task_text = f"{i}. {priority_icon}"
-        
-        keyboard.append([
-            InlineKeyboardButton(
-                text=task_text,
-                callback_data=f"set_priority_{task_id}"
-            )
-        ])
+        # Обрезаем длинный текст для кнопки
+        if len(task_text) > 60:
+            task_text = task_text[:57] + "..."
+            
+        keyboard.append([InlineKeyboardButton(
+            text=task_text, 
+            callback_data=f"set_priority_{task_id}"
+        )])
     
-    keyboard.append([
-        InlineKeyboardButton(
-            text="↩️ Назад",
-            callback_data="back_to_list"
-        )
-    ])
+    keyboard.append([InlineKeyboardButton(text="↩️ Назад к списку", callback_data="back_to_list")])
     
     await query.edit_message_text(
-        text="🔄 Режим изменения приоритетов",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        text="🔢 *Режим изменения приоритетов*\n\nВыберите задачу для изменения приоритета:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='Markdown'
     )
 
 async def show_priority_options(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    Показывает варианты приоритетов для задачи
-    
-    Args:
-        update: Объект обновления Telegram
-        context: Контекст бота
-    """
     query = update.callback_query
     await query.answer()
     
-    # Извлекаем ID задачи из callback_data
-    task_id = int(query.data.split('_')[2])
+    # Извлекаем task_id из callback_data
+    task_id = int(query.data.split("_")[2])  # set_priority_123 -> 123
+    
+    # Определяем куда возвращаться
+    back_callback = "priority_mode"
+    current_category = ""
+    if hasattr(context, 'user_data') and context.user_data.get('active_category_view', False):
+        current_category = context.user_data.get('current_category', "")
+        back_callback = f"category_priority_mode_{current_category}"
     
     keyboard = [
-        [
-            InlineKeyboardButton(
-                text="🔴 Высокий",
-                callback_data=f"priority_{task_id}_3"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text="🟡 Средний",
-                callback_data=f"priority_{task_id}_2"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text="🔵 Низкий",
-                callback_data=f"priority_{task_id}_1"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text="↩️ Назад",
-                callback_data="priority_mode"
-            )
-        ]
+        [InlineKeyboardButton(text="🔴 Высокий", callback_data=f"priority_{task_id}_3")],
+        [InlineKeyboardButton(text="🟡 Средний", callback_data=f"priority_{task_id}_2")],
+        [InlineKeyboardButton(text="🔵 Низкий", callback_data=f"priority_{task_id}_1")],
+        [InlineKeyboardButton(text="Без приоритета", callback_data=f"priority_{task_id}_0")],
+        [InlineKeyboardButton(text="↩️ Назад", callback_data=back_callback)]
     ]
     
+    await query.edit_message_text(
+        text="🔢 Выберите приоритет для задачи:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
     await query.edit_message_text(
         text="Выберите приоритет для задачи:",
         reply_markup=InlineKeyboardMarkup(keyboard)
@@ -617,13 +587,13 @@ async def set_task_priority(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     
     # Обновляем приоритет в базе данных
     update_task_priority(task_id, priority)
-    
+    current_category = ''  # Инициализируем переменную заранее
     # Проверяем, откуда пришли (из категории или из общего меню приоритетов)
     if hasattr(context, 'user_data') and context.user_data.get('active_category_view', False):
-        # Возвращаемся к списку задач категории
-        await show_tasks_by_category(update, context)
+        # Возвращаемся к приоритетам категории
+        current_category = context.user_data.get('current_category', '')
+        await show_category_priority(update, context)
     else:
-        # Возвращаемся к общему меню приоритетов
         await show_priority_menu(update, context)
 
 async def show_categories_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -633,6 +603,12 @@ async def show_categories_menu(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.callback_query
     await query.answer()
     
+    # Сбрасываем контекст категории при входе в общий режим категорий
+    if not hasattr(context, 'user_data'):
+        context.user_data = {}
+    context.user_data['active_category_view'] = False
+    context.user_data['current_category'] = ''
+
     if update.effective_chat.type in ['group', 'supergroup']:
         owner_id = update.effective_chat.id
     else:
@@ -769,6 +745,8 @@ async def show_tasks_by_category(update: Update, context: ContextTypes.DEFAULT_T
     context.user_data['active_category_view'] = True
     if not hasattr(context, 'user_data'):
         context.user_data = {}
+    context.user_data['active_category_view'] = True
+    context.user_data['current_category'] = category  # ← ДОБАВЛЯЕМ ЭТО!
     context.user_data['current_view'] = {'type': 'category', 'category': category}
     
     message_text = f"📂 Категория #{category}:"
@@ -783,6 +761,12 @@ async def show_reminders_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     await query.answer()
     
+    # Сбрасываем контекст категории при входе в общий режим напоминаний
+    if not hasattr(context, 'user_data'):
+        context.user_data = {}
+    context.user_data['active_category_view'] = False
+    context.user_data['current_category'] = ''
+
     if update.effective_chat.type in ['group', 'supergroup']:
         owner_id = update.effective_chat.id
     else:
@@ -860,13 +844,22 @@ async def show_reminder_options(update: Update, context: ContextTypes.DEFAULT_TY
     
     task_id = int(query.data.split('_')[2])
     
+    # Проверяем, находимся ли мы в режиме категории
+    back_callback = "reminder_mode"
+    current_category = ''  # Инициализируем переменную заранее
+    
+    if hasattr(context, 'user_data') and context.user_data.get('active_category_view', False):
+        # Получаем текущую категорию из callback_data
+        current_category = context.user_data.get('current_category', '')
+        back_callback = f"category_reminder_mode_{current_category}"
+
     keyboard = [
         [InlineKeyboardButton(text="🔕 Удалить напоминание", callback_data=f"delete_reminder_{task_id}")],
         [InlineKeyboardButton(text="🔔 30 минут", callback_data=f"snooze_reminder_{task_id}_30")],
         [InlineKeyboardButton(text="🔔 1 час", callback_data=f"snooze_reminder_{task_id}_60")],
         [InlineKeyboardButton(text="🔔 На завтра", callback_data=f"snooze_reminder_{task_id}_tomorrow")],
         [InlineKeyboardButton(text="🕐 Произвольное время", callback_data=f"custom_reminder_{task_id}")],
-        [InlineKeyboardButton(text="↩️ Назад", callback_data="reminder_mode")]
+        [InlineKeyboardButton(text="↩️ Назад", callback_data=back_callback)]
     ]
     
     await query.edit_message_text(
@@ -892,7 +885,10 @@ async def delete_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     set_reminder(task_id, None)
     
     # Возвращаемся к списку напоминаний
-    await show_reminders_menu(update, context)
+    if hasattr(context, 'user_data') and context.user_data.get('active_category_view', False):
+        await show_category_reminder(update, context)  # ← ПРАВИЛЬНО!
+    else:
+        await show_reminders_menu(update, context)  # ← ПРАВИЛЬНО!
 
 async def send_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
     """
@@ -1021,6 +1017,12 @@ async def show_category_priority(update: Update, context: ContextTypes.DEFAULT_T
     
     category = '_'.join(query.data.split('_')[3:])  # category_priority_mode_название_категории
     
+    # Сохраняем текущую категорию в контексте
+    if not hasattr(context, 'user_data'):
+        context.user_data = {}
+    context.user_data['current_category'] = category
+    context.user_data['active_category_view'] = True
+
     if update.effective_chat.type in ['group', 'supergroup']:
         owner_id = update.effective_chat.id
     else:
@@ -1071,6 +1073,12 @@ async def show_category_reminder(update: Update, context: ContextTypes.DEFAULT_T
     await query.answer()
     
     category = '_'.join(query.data.split('_')[3:])  # category_reminder_mode_название_категории
+
+    # Сохраняем текущую категорию в контексте
+    if not hasattr(context, 'user_data'):
+        context.user_data = {}
+    context.user_data['current_category'] = category
+    context.user_data['active_category_view'] = True
 
     if update.effective_chat.type in ['group', 'supergroup']:
         owner_id = update.effective_chat.id
