@@ -709,7 +709,7 @@ async def show_tasks_by_category(update: Update, context: ContextTypes.DEFAULT_T
     
     # Добавляем кнопку напоминаний (отдельная строка)
     keyboard.append([
-        InlineKeyboardButton(text="🔔 [ Напоминания ]", callback_data=f"category_reminder_mode_{category}")
+        InlineKeyboardButton(text="🆙 [ Напоминания ]", callback_data=f"category_reminder_mode_{category}")
     ])
     
     keyboard.append([InlineKeyboardButton(text="─" * 25, callback_data="divider")])
@@ -1055,7 +1055,7 @@ async def show_category_priority(update: Update, context: ContextTypes.DEFAULT_T
             callback_data=f"set_priority_{task_id}"
         )])
     
-    keyboard.append([InlineKeyboardButton(text="↩️ Назад", callback_data=f"category_mode")])
+    keyboard.append([InlineKeyboardButton(text="↩️ Назад", callback_data=f"filter_category_{category}")])
     
     await query.edit_message_text(
         text=f"🔢 Управление приоритетами в категории #{category}:\n\nВыберите задачу для изменения приоритета:",
@@ -1135,7 +1135,7 @@ async def show_category_reminder(update: Update, context: ContextTypes.DEFAULT_T
                 callback_data=f"reminder_options_{task_id}"
             )])
     
-    keyboard.append([InlineKeyboardButton(text="↩️ Назад", callback_data=f"category_mode")])
+    keyboard.append([InlineKeyboardButton(text="↩️ Назад", callback_data=f"filter_category_{category}")])
     
     total_with_reminders = len(category_tasks_with_reminders)
     total_without_reminders = len(category_tasks_without_reminders)
@@ -1196,8 +1196,7 @@ async def start_custom_reminder(update: Update, context: ContextTypes.DEFAULT_TY
         text="🕐 Введите время напоминания в формате:\n\n"
              "• 15:30 - сегодня в 15:30\n"
              "• 29.05 10:00 - 29 мая в 10:00\n"
-             "• завтра 09:00 - завтра в 09:00\n\n"
-             "Или нажмите /cancel для отмены",
+             "• завтра 09:00 - завтра в 09:00\n\n",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("❌ Отмена", callback_data="back_to_list")]
         ])  # ✅ ПРАВИЛЬНО: inline-клавиатура
