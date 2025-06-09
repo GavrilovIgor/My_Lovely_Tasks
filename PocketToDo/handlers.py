@@ -470,9 +470,13 @@ async def task_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     if data == "back_to_list":
-        if hasattr(context, 'user_data'):
-            context.user_data['active_category_view'] = False
-        await list_tasks(update, context)
+        if hasattr(context, "user_data") and context.user_data.get("active_category_view", False):
+            # Если мы в режиме просмотра категории, возвращаемся к списку категорий
+            context.user_data["active_category_view"] = False
+            await show_categories_menu(update, context)
+        else:
+            # Иначе возвращаемся к общему списку задач
+            await list_tasks(update, context)
         return
 
     if data.startswith("toggle_"):
@@ -524,18 +528,14 @@ async def show_priority_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
             priority_icon = priority_emoji.get(priority, "")
             task_text = f"{status} {priority_icon} {text}"
         else:
-            task_text = f"{status} {text}"
-        
-        # Обрезаем длинный текст для кнопки
-        if len(task_text) > 60:
-            task_text = task_text[:57] + "..."
+            task_text = f"{status} {priority_icon} {text}" if priority > 0 else f"{status} {text}"
             
         keyboard.append([InlineKeyboardButton(
             text=task_text, 
             callback_data=f"set_priority_{task_id}"
         )])
     
-    keyboard.append([InlineKeyboardButton(text="↩️ Назад к списку", callback_data="back_to_list")])
+    keyboard.append([InlineKeyboardButton(text="↩️ Назад", callback_data="back_to_list")])
     
     await query.edit_message_text(
         text="🔢 *Режим изменения приоритетов*\n\nВыберите задачу для изменения приоритета:",
@@ -576,24 +576,19 @@ async def show_priority_options(update: Update, context: ContextTypes.DEFAULT_TY
     )
 
 async def set_task_priority(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Установить приоритет задачи"""
     query = update.callback_query
     await query.answer()
-    
-    # Парсим callback_data: priority_taskid_priority
-    parts = query.data.split('_')
+    parts = query.data.split("_")  # Изменено с ":" на "_"
     task_id = int(parts[1])
     priority = int(parts[2])
-    
-    # Обновляем приоритет в базе данных
     update_task_priority(task_id, priority)
-    current_category = ''  # Инициализируем переменную заранее
-    # Проверяем, откуда пришли (из категории или из общего меню приоритетов)
+    
+    # Проверяем, находимся ли мы в режиме просмотра категории
     if hasattr(context, 'user_data') and context.user_data.get('active_category_view', False):
-        # Возвращаемся к приоритетам категории
-        current_category = context.user_data.get('current_category', '')
+        # Если да, то возвращаемся к меню приоритетов для этой категории
         await show_category_priority(update, context)
     else:
+        # Если нет, то возвращаемся к общему меню приоритетов
         await show_priority_menu(update, context)
 
 async def show_categories_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -655,7 +650,7 @@ async def show_categories_menu(update: Update, context: ContextTypes.DEFAULT_TYP
     
     keyboard.append([
         InlineKeyboardButton(
-            text="↩️ Назад к задачам",
+            text="↩️ Назад",
             callback_data="back_to_list"
         )
     ])
@@ -739,7 +734,7 @@ async def show_tasks_by_category(update: Update, context: ContextTypes.DEFAULT_T
             
             keyboard.append([InlineKeyboardButton(text=task_text, callback_data=f"toggle_{task_id}")])
     
-    keyboard.append([InlineKeyboardButton(text="↩️ Назад к задачам", callback_data="back_to_list")])
+    keyboard.append([InlineKeyboardButton(text="↩️ Назад", callback_data="category_mode")])
     
     # Сохраняем текущий вид в context
     context.user_data['active_category_view'] = True
@@ -824,7 +819,7 @@ async def show_reminders_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
                 callback_data=f"reminder_options_{task_id}"
             )])
     
-    keyboard.append([InlineKeyboardButton(text="↩️ Назад к задачам", callback_data="back_to_list")])
+    keyboard.append([InlineKeyboardButton(text="↩️ Назад", callback_data="back_to_list")])
     
     total_with_reminders = len(tasks_with_reminders)
     total_without_reminders = len(tasks_without_reminders)
@@ -857,7 +852,7 @@ async def show_reminder_options(update: Update, context: ContextTypes.DEFAULT_TY
         [InlineKeyboardButton(text="🔕 Удалить напоминание", callback_data=f"delete_reminder_{task_id}")],
         [InlineKeyboardButton(text="🔔 30 минут", callback_data=f"snooze_reminder_{task_id}_30")],
         [InlineKeyboardButton(text="🔔 1 час", callback_data=f"snooze_reminder_{task_id}_60")],
-        [InlineKeyboardButton(text="🔔 На завтра", callback_data=f"snooze_reminder_{task_id}_tomorrow")],
+        [InlineKeyboardButton(text="🔔 На завтра в это же время", callback_data=f"snooze_reminder_{task_id}_tomorrow")],
         [InlineKeyboardButton(text="🕐 Произвольное время", callback_data=f"custom_reminder_{task_id}")],
         [InlineKeyboardButton(text="↩️ Назад", callback_data=back_callback)]
     ]
@@ -916,7 +911,7 @@ async def send_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
         ],
         [
             InlineKeyboardButton(
-                text="📆 Отложить на завтра",
+                text="📆 Отложить на завтра в это же время",
                 callback_data=f"snooze_reminder_{task_id}_tomorrow"
             )
         ]
@@ -1060,7 +1055,7 @@ async def show_category_priority(update: Update, context: ContextTypes.DEFAULT_T
             callback_data=f"set_priority_{task_id}"
         )])
     
-    keyboard.append([InlineKeyboardButton(text="↩️ Назад к категории", callback_data=f"filter_category_{category}")])
+    keyboard.append([InlineKeyboardButton(text="↩️ Назад", callback_data=f"category_mode")])
     
     await query.edit_message_text(
         text=f"🔢 Управление приоритетами в категории #{category}:\n\nВыберите задачу для изменения приоритета:",
@@ -1140,7 +1135,7 @@ async def show_category_reminder(update: Update, context: ContextTypes.DEFAULT_T
                 callback_data=f"reminder_options_{task_id}"
             )])
     
-    keyboard.append([InlineKeyboardButton(text="↩️ Назад к категории", callback_data=f"filter_category_{category}")])
+    keyboard.append([InlineKeyboardButton(text="↩️ Назад", callback_data=f"category_mode")])
     
     total_with_reminders = len(category_tasks_with_reminders)
     total_without_reminders = len(category_tasks_without_reminders)
