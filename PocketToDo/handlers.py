@@ -716,7 +716,7 @@ async def show_tasks_by_category(update: Update, context: ContextTypes.DEFAULT_T
         InlineKeyboardButton(text="🆙 [ Напоминания ]", callback_data=f"category_reminder_mode_{category}")
     ])
     
-    keyboard.append([InlineKeyboardButton(text="─" * 25, callback_data="divider")])
+    keyboard.append([InlineKeyboardButton(text="─" * 20, callback_data="divider")])
     
     # Добавляем задачи категории
     if not filtered_tasks:
@@ -785,7 +785,7 @@ async def show_reminders_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
             tasks_without_reminders.append(task)
     
     keyboard = []
-    keyboard.append([InlineKeyboardButton(text="─" * 25, callback_data="divider")])
+    keyboard.append([InlineKeyboardButton(text="─" * 20, callback_data="divider")])
     
     if tasks_with_reminders:
         keyboard.append([InlineKeyboardButton(text="🔔 С напоминаниями:", callback_data="divider")])
@@ -1039,7 +1039,7 @@ async def show_category_priority(update: Update, context: ContextTypes.DEFAULT_T
             category_tasks.append(task)
     
     keyboard = []
-    keyboard.append([InlineKeyboardButton(text="─" * 25, callback_data="divider")])
+    keyboard.append([InlineKeyboardButton(text="─" * 20, callback_data="divider")])
     
     # Убираем группировку, показываем все задачи подряд
     for task_id, text, done, priority, reminder_time in category_tasks:
@@ -1101,7 +1101,7 @@ async def show_category_reminder(update: Update, context: ContextTypes.DEFAULT_T
                 category_tasks_without_reminders.append(task)
     
     keyboard = []
-    keyboard.append([InlineKeyboardButton(text="─" * 25, callback_data="divider")])
+    keyboard.append([InlineKeyboardButton(text="─" * 20, callback_data="divider")])
     
     if category_tasks_with_reminders:
         keyboard.append([InlineKeyboardButton(text="🔔 С напоминаниями:", callback_data="divider")])
