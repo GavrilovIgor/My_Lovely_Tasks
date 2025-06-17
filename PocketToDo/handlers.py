@@ -479,28 +479,29 @@ async def task_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await list_tasks(update, context)
         return
 
-    if data.startswith("toggle_"):
+    if data.startswith("toggle"):
         task_id = int(data.split("_")[1])
         success = toggle_task_db(task_id, owner_id)
-        
         if success:
-            await query.answer("Статус задачи изменён")
+            await query.answer("✅")
         else:
-            await query.answer("Ошибка при изменении статуса")
+            await query.answer("❌")
             return
-
-        # Обновляем клавиатуру сразу
-        try:
-            keyboard_markup = get_task_list_markup(owner_id)
-            await query.edit_message_reply_markup(reply_markup=keyboard_markup)
-        except Exception as e:
-            if "Message is not modified" not in str(e):
-                logger.error(f"Ошибка обновления клавиатуры: {e}")
-
-        if hasattr(context, 'user_data') and context.user_data.get('active_category_view', False):
+        
+        # Сначала проверяем, находимся ли мы в режиме просмотра категории
+        if hasattr(context, 'user_data') and context.user_data.get("active_category_view", False):
+            # Если в категории - обновляем представление категории
             await show_tasks_by_category(update, context)
         else:
-            await list_tasks(update, context)
+            # Если в общем списке - обновляем только клавиатуру без перезагрузки сообщения
+            try:
+                keyboard_markup = get_task_list_markup(owner_id)
+                await query.edit_message_reply_markup(reply_markup=keyboard_markup)
+            except Exception as e:
+                if "Message is not modified" not in str(e):
+                    logger.error(f"Error updating keyboard: {e}")
+                # Если не удалось обновить клавиатуру, обновляем весь список
+                await list_tasks(update, context)
         return
 
 async def show_priority_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -578,17 +579,20 @@ async def show_priority_options(update: Update, context: ContextTypes.DEFAULT_TY
 async def set_task_priority(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
-    parts = query.data.split("_")  # Изменено с ":" на "_"
+    parts = query.data.split("_")
     task_id = int(parts[1])
     priority = int(parts[2])
     update_task_priority(task_id, priority)
     
-    # Проверяем, находимся ли мы в режиме просмотра категории
     if hasattr(context, 'user_data') and context.user_data.get('active_category_view', False):
-        # Если да, то возвращаемся к меню приоритетов для этой категории
+        # Получаем текущую категорию и возвращаемся к меню приоритетов категории
+        current_category = context.user_data.get('current_category', '')
+        # Имитируем callback_data для show_category_priority
+        original_data = query.data
+        query.data = f'category_priority_mode_{current_category}'
         await show_category_priority(update, context)
+        query.data = original_data
     else:
-        # Если нет, то возвращаемся к общему меню приоритетов
         await show_priority_menu(update, context)
 
 async def show_categories_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
