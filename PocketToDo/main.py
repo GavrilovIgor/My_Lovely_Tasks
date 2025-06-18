@@ -87,12 +87,13 @@ def main():
     from handlers import SETTING_CUSTOM_REMINDER, save_custom_reminder
 
     reminder_conv_handler = ConversationHandler(
-        entry_points=[],  # Вход через callback
+        entry_points=[CallbackQueryHandler(start_custom_reminder, pattern="^custom_reminder_")],  # ИСПРАВИТЬ
         states={
             SETTING_CUSTOM_REMINDER: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_custom_reminder)],
         },
         fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)]
     )
+
 
     app.add_handler(reminder_conv_handler)
     app.add_handler(CommandHandler("start", start))

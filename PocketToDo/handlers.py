@@ -209,6 +209,11 @@ async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ConversationHandler.END
 
 async def add_task_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # Простая проверка: если пользователь в процессе установки напоминания
+    if (hasattr(context, 'user_data') and 
+        context.user_data.get('reminder_task_id')):
+        return
+    
     MENUBUTTONS = ["Меню", "Список", "Удалить"]
     text = update.message.text.strip()
     if not text or text.startswith("/") or text in MENUBUTTONS:
@@ -441,10 +446,6 @@ async def task_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await snooze_reminder(update, context)
         return
 
-    if data.startswith('custom_reminder_'):
-        await start_custom_reminder(update, context)
-        return
-
     if data.startswith("filter_category_"):
         await show_tasks_by_category(update, context)
         return
@@ -503,6 +504,7 @@ async def task_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 # Если не удалось обновить клавиатуру, обновляем весь список
                 await list_tasks(update, context)
         return
+
 
 async def show_priority_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
@@ -969,12 +971,18 @@ async def snooze_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             new_reminder = new_reminder.replace(second=0)
 
     set_reminder(task_id, new_reminder)
-    logger.info(f"Напоминание отложено на {new_reminder}")
-
-    await query.edit_message_text(
-        text=f"Напоминание отложено на {new_reminder.strftime('%d.%m.%Y %H:%M')}",
-        reply_markup=None
+    logger.info(f"new reminder set for task {task_id}: {new_reminder}")
+    
+    # ВАЖНО: Очищаем reminder_task_id после завершения работы
+    if 'reminder_task_id' in context.user_data:
+        del context.user_data['reminder_task_id']
+    
+    await update.message.reply_text(
+        f"⏰ Напоминание установлено на {new_reminder.strftime('%d.%m.%Y %H:%M')}",
+        reply_markup=get_main_keyboard()
     )
+    
+    return ConversationHandler.END
 
     # Запускаем новое напоминание
     task_text = get_task_text_by_id(task_id)
