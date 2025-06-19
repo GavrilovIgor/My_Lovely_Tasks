@@ -12,7 +12,8 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         [
             ["📋 Мои задачи"],
-            ["🧹 Удалить выполненные"]
+            ["🧹 Удалить выполненные"],
+            ["🫶 Поддержи проект"]
         ], 
         resize_keyboard=True
     )

@@ -243,3 +243,37 @@ def toggle_all_tasks_db(user_id: int, set_done: bool) -> None:
             logger.info(f"Успешно обновлено {c.rowcount} задач")
     except Exception as e:
         logger.error(f"Ошибка массового обновления: {e}")
+
+def add_donation_db(user_id: int, amount: int, payment_id: str = None) -> None:
+    """Записывает информацию о поддержке в базу данных"""
+    with get_connection() as conn:
+        c = conn.cursor()
+        # Создаем таблицу если её нет
+        c.execute('''CREATE TABLE IF NOT EXISTS donations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            amount INTEGER,
+            payment_id TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )''')
+        
+        c.execute('''INSERT INTO donations (user_id, amount, payment_id) 
+                     VALUES (?, ?, ?)''', (user_id, amount, payment_id))
+        conn.commit()
+        logger.info(f"Donation recorded: user_id={user_id}, amount={amount}")
+
+def get_user_donations_db(user_id: int) -> int:
+    """Возвращает общую сумму поддержки от пользователя"""
+    with get_connection() as conn:
+        c = conn.cursor()
+        c.execute('''SELECT COALESCE(SUM(amount), 0) FROM donations WHERE user_id = ?''', (user_id,))
+        result = c.fetchone()
+        return result[0] if result else 0
+
+def get_total_donations_db() -> tuple:
+    """Возвращает общую статистику поддержки (сумма, количество)"""
+    with get_connection() as conn:
+        c = conn.cursor()
+        c.execute('''SELECT COALESCE(SUM(amount), 0), COUNT(*) FROM donations''')
+        result = c.fetchone()
+        return (result[0], result[1]) if result else (0, 0)

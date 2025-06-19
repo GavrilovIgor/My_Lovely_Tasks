@@ -5,7 +5,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, 
-    filters, ConversationHandler, CallbackQueryHandler, ContextTypes
+    filters, ConversationHandler, CallbackQueryHandler, ContextTypes, PreCheckoutQueryHandler
 )
 from dotenv import load_dotenv
 
@@ -35,8 +35,8 @@ from handlers import (
     start, help_command, list_tasks, add, save_task, 
     task_action, add_task_from_text, main_menu_handler,
     ask_delete_tasks, delete_tasks_by_numbers, send_reminder,
-    SETTING_CUSTOM_REMINDER, save_custom_reminder, start_custom_reminder
-)
+    SETTING_CUSTOM_REMINDER, save_custom_reminder, start_custom_reminder, 
+    support_developer, handle_donation_callback, pre_checkout_donation_handler, successful_donation_handler)
 
 from jobs import send_reminder_notification
 
@@ -99,9 +99,12 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("list", list_tasks))
+    app.add_handler(CallbackQueryHandler(handle_donation_callback, pattern="^donate_"))
     app.add_handler(CallbackQueryHandler(task_action))
     app.add_handler(conv_handler)
     app.add_handler(delete_conv_handler)
+    app.add_handler(PreCheckoutQueryHandler(pre_checkout_donation_handler))
+    app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_donation_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & ~menu_filter, add_task_from_text))
     app.add_handler(MessageHandler(menu_filter, main_menu_handler))
     job_queue = app.job_queue

@@ -1,16 +1,18 @@
 import sqlite3
 import logging
 import re
+import os
 from database import DB_PATH
 from typing import List, Tuple, Optional
 from datetime import datetime, timedelta, timezone
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, ConversationHandler
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice
+from telegram.ext import ContextTypes, ConversationHandler, PreCheckoutQueryHandler
+
 
 from database import (
     get_tasks_db, toggle_task_status_db, add_task_db, delete_task_db,
     delete_completed_tasks_for_user, get_tasks_with_reminders, set_reminder,
-    update_task_priority, toggle_task_db
+    update_task_priority, toggle_task_db, get_user_donations_db, get_total_donations_db, add_donation_db
 )
 from keyboards import get_main_keyboard, get_task_list_markup, get_cancel_keyboard, priority_emoji
 from utils import extract_categories
@@ -22,8 +24,8 @@ ADDING_TASK = 1
 DELETING_TASKS = 2
 SETTING_CUSTOM_REMINDER = 3
 
-# Единый список кнопок меню
-MENU_BUTTONS = ["📋 Мои задачи", "🧹 Удалить выполненные", "❌ Отмена"]
+# Единый список кнопок меню  
+MENU_BUTTONS = ["📋 Мои задачи", "🧹 Удалить выполненные", "🫶 Поддержи проект", "❌ Отмена"]
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
@@ -181,7 +183,7 @@ async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return ConversationHandler.END
 
     # Список текстов кнопок, которые не должны добавляться как задачи
-    MENU_BUTTONS = ["📋 Мои задачи", "🧹 Удалить выполненные", "❌ Отмена"]
+    MENU_BUTTONS = ["📋 Мои задачи", "🧹 Удалить выполненные", "🫶 Поддержи проект", "❌ Отмена"]
 
     if not input_text:
         await update.message.reply_text("Пустой ввод. Попробуйте снова.")
@@ -214,11 +216,14 @@ async def add_task_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
         context.user_data.get('reminder_task_id')):
         return
     
-    MENUBUTTONS = ["Меню", "Список", "Удалить"]
-    text = update.message.text.strip()
-    if not text or text.startswith("/") or text in MENUBUTTONS:
+    # Проверяем, ожидается ли ввод суммы пожертвования
+    if hasattr(context, 'user_data') and context.user_data.get('waiting_custom_amount'):
+        await handle_custom_donation_amount(update, context)
         return
-    if text in MENUBUTTONS:
+    
+    MENU_BUTTONS = ["📋 Мои задачи", "🧹 Удалить выполненные", "🫶 Поддержи проект", "❌ Отмена"]
+    text = update.message.text.strip()
+    if not text or text.startswith("/") or text in MENU_BUTTONS:
         return
 
     # Получаем username бота
@@ -249,22 +254,11 @@ async def add_task_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await list_tasks(update, context)
 
 async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Optional[int]:
-    """
-    Обработчик кнопок главного меню
-    
-    Args:
-        update: Объект обновления Telegram
-        context: Контекст бота
-        
-    Returns:
-        Optional[int]: Следующее состояние разговора или None
-    """
     try:
         text = update.message.text
         if text == "➕ Добавить задачу":
             return await add(update, context)
         elif text == "📋 Мои задачи":
-            # Добавляем логирование для отладки
             logger.info(f"Нажата кнопка 'Мои задачи' пользователем {update.effective_user.id}")
             await list_tasks(update, context)
             return ConversationHandler.END
@@ -276,17 +270,14 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             else:
                 owner_id = update.effective_user.id
             delete_completed_tasks_for_user(owner_id)
-
             await update.message.reply_text("Выполненные задачи удалены", reply_markup=get_main_keyboard())
-            
-            # Проверяем, находимся ли мы в режиме просмотра категории
             if hasattr(context, 'user_data') and context.user_data.get('active_category_view', False):
-                # Обновляем список задач в текущей категории
                 await show_tasks_by_category(update, context)
             else:
-                # В остальных случаях показываем общий список задач
                 await list_tasks(update, context)
-            
+            return ConversationHandler.END
+        elif text == "🫶 Поддержи проект":
+            await support_developer(update, context)
             return ConversationHandler.END
     except Exception as e:
         logger.error(f"Ошибка в обработчике главного меню: {e}")
@@ -337,7 +328,7 @@ async def delete_tasks_by_numbers(update: Update, context: ContextTypes.DEFAULT_
         return ConversationHandler.END
 
     # Список текстов кнопок, которые не должны обрабатываться как номера задач
-    MENU_BUTTONS = ["📋 Мои задачи", "🧹 Удалить выполненные", "❌ Отмена"]
+    MENU_BUTTONS = ["📋 Мои задачи", "🧹 Удалить выполненные", "🫶 Поддержи проект", "❌ Отмена"]
 
     if input_text in MENU_BUTTONS:
         # Если это кнопка меню, обрабатываем её как нажатие кнопки
@@ -1268,3 +1259,211 @@ async def save_custom_reminder(update: Update, context: ContextTypes.DEFAULT_TYP
         await list_tasks(update, context)
     
     return ConversationHandler.END
+
+# Константы для поддержки
+PAYMENTS_TOKEN = os.getenv("PAYMENTS_TOKEN", "381764678:TEST:100037")
+
+async def support_developer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    print("DEBUG: support_developer function called!")  # ← ДОБАВЬ ЭТО
+    logger.info("support_developer function called!")    # ← И ЭТО
+    """Показывает варианты поддержки разработчика"""
+    user_id = update.effective_user.id
+    
+    # Получаем статистику пользователя
+    user_donations = get_user_donations_db(user_id)
+    total_amount, total_count = get_total_donations_db()
+    
+    # Создаем inline клавиатуру с вариантами поддерж
+    keyboard = [
+        [InlineKeyboardButton("100₽ - На кофе разработчику ☕️", callback_data="donate_100")],
+        [InlineKeyboardButton("300₽ - На обед разработчику 🍕", callback_data="donate_300")],
+        [InlineKeyboardButton("1000₽ - Серьезная поддержка 💪", callback_data="donate_1000")],
+        [InlineKeyboardButton("Своя сумма 💝", callback_data="donate_custom")]
+    ]
+    
+    message_text = (
+        "💝 **Поддержка разработчика**\n\n"
+        "Этот бот создается с любовью и полностью бесплатен для всех пользователей!\n\n"
+        "Если бот помогает вам организовать задачи и экономит время, "
+        "вы можете поддержать его развитие добровольным пожертвованием.\n\n"
+    ) 
+    
+    if user_donations > 0:
+        message_text += f"💙 Ваша поддержка: **{user_donations}₽**\n"
+    
+    if total_count > 0:
+        message_text += f"🙏 Проект поддержали **{total_count}** человек на сумму **{total_amount}₽**\n\n"
+    
+    message_text += (
+        "**На что идут средства:**\n"
+        "• Оплата сервера и хостинга\n"
+        "• Поддержка и обновления\n"
+        "• Разработка новых функций\n"
+        "• Кофе для программиста ☕\n\n"
+        "Выберите удобную сумму:"
+    )
+    
+    await update.message.reply_text(
+        message_text,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='Markdown'
+    )
+
+async def handle_donation_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обрабатывает выбор суммы поддержки"""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data
+    
+    if data == "donate_custom":
+        await query.edit_message_text(
+            "💝 **Произвольная сумма**\n\n"
+            "Напишите сумму, которую хотите пожертвовать (от 50₽ до 15000₽):\n\n"
+            "Например: `500` или `1500`",
+            parse_mode='Markdown'
+        )
+        context.user_data['waiting_custom_amount'] = True
+        return
+    
+    # Обрабатываем предустановленные суммы
+    amount_map = {
+        "donate_100": 100,
+        "donate_300": 300,
+        "donate_1000": 1000
+    }
+    
+    amount = amount_map.get(data)
+    if not amount:
+        return
+    
+    await send_donation_invoice(query, context, amount)
+
+async def send_donation_invoice(query_or_update, context: ContextTypes.DEFAULT_TYPE, amount: int) -> None:
+    """Отправляет инвойс для пожертвования"""
+    amount_in_kopecks = amount * 100  # Переводим в копейки
+    
+    # Определяем описание в зависимости от суммы
+    descriptions = {
+        100: "На кофе разработчику ☕",
+        300: "На обед разработчику 🍕", 
+        1000: "Серьезная поддержка 💪"
+    }
+    
+    description = descriptions.get(amount, f"Поддержка проекта на {amount}₽")
+    
+    try:
+        if hasattr(query_or_update, 'effective_chat'):
+            chat_id = query_or_update.effective_chat.id
+        else:
+            chat_id = query_or_update.message.chat.id
+        
+        await context.bot.send_invoice(
+            chat_id=chat_id,
+            title="Поддержка разработчика",
+            description=f"Добровольное пожертвование: {description}\n\n"
+                       f"Спасибо за поддержку проекта! 💙",
+            payload=f"donation_{amount}",
+            provider_token=PAYMENTS_TOKEN,
+            currency="RUB",
+            prices=[LabeledPrice(label=description, amount=amount_in_kopecks)],
+            start_parameter="donation",
+            need_name=False,
+            need_phone_number=False,
+            need_email=False,
+            need_shipping_address=False,
+            send_phone_number_to_provider=False,
+            send_email_to_provider=False,
+            is_flexible=False
+        )
+        
+        if hasattr(query_or_update, 'edit_message_text'):
+            await query_or_update.edit_message_text(
+                f"💝 Спасибо за желание поддержать проект!\n\n"
+                f"Сумма: **{amount}₽**\n"
+                f"Описание: {description}",
+                parse_mode='Markdown'
+            )
+            
+    except Exception as e:
+        logger.error(f"Error sending donation invoice: {e}")
+        error_text = "Извините, произошла ошибка при создании платежа. Попробуйте позже."
+        
+        if hasattr(query_or_update, 'edit_message_text'):
+            await query_or_update.edit_message_text(error_text)
+        else:
+            await query_or_update.message.reply_text(error_text)
+
+async def handle_custom_donation_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обрабатывает ввод произвольной суммы пожертвования"""
+    if not context.user_data.get('waiting_custom_amount'):
+        return
+    
+    try:
+        amount = int(update.message.text.strip())
+        
+        if amount < 50:
+            await update.message.reply_text(
+                "Минимальная сумма поддержки: 50₽\n"
+                "Попробуйте ввести другую сумму:"
+            )
+            return
+        
+        if amount > 15000:
+            await update.message.reply_text(
+                "Максимальная сумма поддержки: 15000₽\n"
+                "Попробуйте ввести другую сумму:"
+            )
+            return
+        
+        context.user_data['waiting_custom_amount'] = False
+        await send_donation_invoice(update, context, amount)
+        
+    except ValueError:
+        await update.message.reply_text(
+            "Пожалуйста, введите корректную сумму числом.\n"
+            "Например: 500"
+        )
+
+async def pre_checkout_donation_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик предварительной проверки пожертвования"""
+    query = update.pre_checkout_query
+    
+    # Проверяем, что это пожертвование
+    if not query.invoice_payload.startswith("donation_"):
+        await query.answer(ok=False, error_message="Ошибка в данных платежа")
+        return
+    
+    # Подтверждаем платеж
+    await query.answer(ok=True)
+    logger.info(f"Pre-checkout approved for donation from user {query.from_user.id}")
+
+async def successful_donation_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик успешного пожертвования"""
+    payment = update.message.successful_payment
+    user_id = update.effective_user.id
+    
+    # Извлекаем сумму из payload
+    amount = int(payment.invoice_payload.split("_")[1])
+    
+    # Записываем пожертвование в базу данных
+    add_donation_db(
+        user_id=user_id,
+        amount=amount,
+        payment_id=payment.telegram_payment_charge_id
+    )
+    
+    # Получаем обновленную статистику
+    user_total = get_user_donations_db(user_id)
+    
+    await update.message.reply_text(
+        f"💙 **Огромное спасибо за поддержку!**\n\n"
+        f"Ваше пожертвование **{amount}₽** получено.\n"
+        f"Общая ваша поддержка: **{user_total}₽**\n\n"
+        f"Благодаря таким пользователям как вы, проект продолжает развиваться!\n\n"
+        f"🙏 Вы помогаете делать бот лучше для всех!",
+        reply_markup=get_main_keyboard(),
+        parse_mode='Markdown'
+    )
+    
+    logger.info(f"Successful donation: user_id={user_id}, amount={amount}₽, payment_id={payment.telegram_payment_charge_id}")
