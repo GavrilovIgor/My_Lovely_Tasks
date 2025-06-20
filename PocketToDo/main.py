@@ -36,7 +36,7 @@ from handlers import (
     task_action, add_task_from_text, main_menu_handler,
     ask_delete_tasks, delete_tasks_by_numbers, send_reminder,
     SETTING_CUSTOM_REMINDER, save_custom_reminder, start_custom_reminder, 
-    support_developer, handle_donation_callback, pre_checkout_donation_handler, successful_donation_handler)
+    support_developer, handle_donation_callback, pre_checkout_donation_handler, successful_donation_handler, stop_bot)
 
 from jobs import send_reminder_notification
 
@@ -49,12 +49,13 @@ menu_filter = (
 async def setup_commands(application):
     from telegram import BotCommand, BotCommandScopeDefault
     commands = [
-        BotCommand("start", "Запуск бота"),
-        BotCommand("help", "Что умеет бот?"),
-        BotCommand("list", "Показать список задач")
+        BotCommand("start", "Запустить бота"),
+        BotCommand("help", "Помощь"),
+        BotCommand("list", "Показать задачи"),
+        BotCommand("stop", "Остановить бота"),
     ]
     await application.bot.set_my_commands(commands, scope=BotCommandScopeDefault())
-    logger.info("Команды бота настроены")
+    logger.info("Bot commands set up successfully")
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.error("Произошла ошибка при обработке обновления:", exc_info=context.error)
@@ -100,6 +101,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("list", list_tasks))
+    app.add_handler(CommandHandler("stop", stop_bot))
     app.add_handler(CallbackQueryHandler(handle_donation_callback, pattern="^donate_"))
     app.add_handler(CallbackQueryHandler(task_action))
     app.add_handler(conv_handler)

@@ -35,6 +35,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         update: Объект обновления Telegram
         context: Контекст бота
     """
+    # Сбрасываем состояние остановки
+    if not hasattr(context, 'user_data'):
+        context.user_data = {}
+    context.user_data['bot_stopped'] = False
+    
     await update.message.reply_text(
         "😺 Привет, организованный человек! Я – твой карманный помощник для задач!\n\n"
         "📝 Я создан, чтобы твоё \"Избранное\" не превращалось в свалку списков дел, а жизнь стала проще! \n\n"
@@ -42,10 +47,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "- Добавлять задачи (просто напиши мне что нужно сделать!)\n"
         "- Отмечать выполненные (приятное чувство, когда вычёркиваешь дела ✅)\n"
         "- Удалять ненужное (чистота – залог продуктивности! 😊)\n\n"
-        "🚀 Начнём вместе делать твои дела? Просто напиши мне задачу!",
+        "🚀 Начнём вместе делать твои дела? Просто напиши мне задачу!\n\n"
+        "💡 Используйте /stop чтобы остановить бота и убрать клавиатуру",
         reply_markup=get_main_keyboard()
     )
- # Показываем краткий гайд только если не показывали ранее
+    
+    # Показываем краткий гайд только если не показывали ранее
     if not context.user_data.get('hint_start_shown'):
         await update.message.reply_text(
             "ℹ️ Добро пожаловать ✋\n\n"
@@ -67,6 +74,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             reply_markup=get_main_keyboard()
         )
         context.user_data['hint_start_shown'] = True
+
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Отправляет сообщение с помощью при команде /help
@@ -92,6 +100,24 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             "❓ Если вдруг что-то забыл - просто набери /help или выбери /help в меню!\n\n"
             "Удачи! Ты справишься 😎"
     )
+async def stop_bot(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Остановка бота для пользователя"""
+    user_id = update.effective_user.id
+    
+    # Сохраняем состояние остановки в context.user_data
+    if not hasattr(context, 'user_data'):
+        context.user_data = {}
+    context.user_data['bot_stopped'] = True
+    
+    # Убираем клавиатуру
+    from telegram import ReplyKeyboardRemove
+    await update.message.reply_text(
+        "🛑 Бот остановлен!\n\n"
+        "Клавиатура убрана. Чтобы снова запустить бота, используйте команду /start",
+        reply_markup=ReplyKeyboardRemove()
+    )
+    
+    logger.info(f"Bot stopped for user {user_id}")
 
 async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_chat.type in ['group', 'supergroup']:
@@ -211,6 +237,10 @@ async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ConversationHandler.END
 
 async def add_task_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # Проверяем, остановлен ли бот для пользователя
+    if hasattr(context, 'user_data') and context.user_data.get('bot_stopped', False):
+        return
+    
     # Простая проверка: если пользователь в процессе установки напоминания
     if (hasattr(context, 'user_data') and 
         context.user_data.get('reminder_task_id')):
@@ -254,11 +284,16 @@ async def add_task_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await list_tasks(update, context)
 
 async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Optional[int]:
+    # Проверяем, остановлен ли бот для пользователя
+    if hasattr(context, 'user_data') and context.user_data.get('bot_stopped', False):
+        return ConversationHandler.END
+
     try:
         text = update.message.text
         if text == "➕ Добавить задачу":
             return await add(update, context)
         elif text == "📋 Мои задачи":
+
             logger.info(f"Нажата кнопка 'Мои задачи' пользователем {update.effective_user.id}")
             await list_tasks(update, context)
             return ConversationHandler.END
