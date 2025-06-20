@@ -25,11 +25,9 @@ def get_connection():
             conn.close()
 
 def init_db() -> None:
-    """Инициализация базы данных"""
     with get_connection() as conn:
         c = conn.cursor()
-        c.execute("""
-        CREATE TABLE IF NOT EXISTS tasks (
+        c.execute('''CREATE TABLE IF NOT EXISTS tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
             text TEXT,
@@ -37,8 +35,16 @@ def init_db() -> None:
             priority INTEGER DEFAULT 0,
             reminder_time TIMESTAMP DEFAULT NULL,
             reminder_sent INTEGER DEFAULT 0
-        )
-    """)
+        )''')
+        
+        # Создаем таблицу donations
+        c.execute('''CREATE TABLE IF NOT EXISTS donations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            amount INTEGER,
+            payment_id TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )''')
         # Добавить миграцию для существующей БД:
         c.execute("PRAGMA table_info(tasks)")
         columns = [column[1] for column in c.fetchall()]

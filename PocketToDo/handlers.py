@@ -1264,53 +1264,40 @@ async def save_custom_reminder(update: Update, context: ContextTypes.DEFAULT_TYP
 PAYMENTS_TOKEN = os.getenv("PAYMENTS_TOKEN", "381764678:TEST:100037")
 
 async def support_developer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    print("DEBUG: support_developer function called!")  # ← ДОБАВЬ ЭТО
-    logger.info("support_developer function called!")    # ← И ЭТО
-    """Показывает варианты поддержки разработчика"""
-    user_id = update.effective_user.id
+    """Показать меню поддержки разработчика с вариантами донатов"""
+    logger.info("support_developer function called!")
     
-    # Получаем статистику пользователя
+    user_id = update.effective_user.id
     user_donations = get_user_donations_db(user_id)
     total_amount, total_count = get_total_donations_db()
     
-    # Создаем inline клавиатуру с вариантами поддерж
     keyboard = [
-        [InlineKeyboardButton("100₽ - На кофе разработчику ☕️", callback_data="donate_100")],
-        [InlineKeyboardButton("300₽ - На обед разработчику 🍕", callback_data="donate_300")],
-        [InlineKeyboardButton("1000₽ - Серьезная поддержка 💪", callback_data="donate_1000")],
-        [InlineKeyboardButton("Своя сумма 💝", callback_data="donate_custom")]
+        [InlineKeyboardButton("100₽ - ☕", callback_data="donate_100")],
+        [InlineKeyboardButton("300₽ - 🍕", callback_data="donate_300")],
+        [InlineKeyboardButton("1000₽ - 🎁", callback_data="donate_1000")],
+        [InlineKeyboardButton("💰 Другая сумма", callback_data="donate_custom")]
     ]
     
-    message_text = (
-        "💝 **Поддержка разработчика**\n\n"
-        "Этот бот создается с любовью и полностью бесплатен для всех пользователей!\n\n"
-        "Если бот помогает вам организовать задачи и экономит время, "
-        "вы можете поддержать его развитие добровольным пожертвованием.\n\n"
-    ) 
+    message_text = "💝 **Поддержи проект!**\n\n"
+    message_text += "Этот бот создан с любовью и полностью бесплатен. "
+    message_text += "Если он помогает тебе организовать дела, буду благодарен за поддержку!\n\n"
     
     if user_donations > 0:
-        message_text += f"💙 Ваша поддержка: **{user_donations}₽**\n"
+        message_text += f"💖 Твои донаты: **{user_donations}₽**\n"
     
     if total_count > 0:
-        message_text += f"🙏 Проект поддержали **{total_count}** человек на сумму **{total_amount}₽**\n\n"
+        message_text += f"🌟 Всего собрано: **{total_amount}₽** от {total_count} человек"
     
-    message_text += (
-        "**На что идут средства:**\n"
-        "• Оплата сервера и хостинга\n"
-        "• Поддержка и обновления\n"
-        "• Разработка новых функций\n"
-        "• Кофе для программиста ☕\n\n"
-        "Выберите удобную сумму:"
-    )
+    message_text += "\n\n_Спасибо за поддержку!_ 🙏"
     
     await update.message.reply_text(
         message_text,
         reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode='Markdown'
+        parse_mode="Markdown"
     )
 
 async def handle_donation_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обрабатывает выбор суммы поддержки"""
+    """Обработка нажатий на кнопки донатов"""
     query = update.callback_query
     await query.answer()
     
@@ -1318,21 +1305,15 @@ async def handle_donation_callback(update: Update, context: ContextTypes.DEFAULT
     
     if data == "donate_custom":
         await query.edit_message_text(
-            "💝 **Произвольная сумма**\n\n"
-            "Напишите сумму, которую хотите пожертвовать (от 50₽ до 15000₽):\n\n"
-            "Например: `500` или `1500`",
-            parse_mode='Markdown'
+            "💰 Введи сумму доната (от 50₽ до 15000₽)\n\n"
+            "Например: 500 или 1500",
+            parse_mode="Markdown"
         )
-        context.user_data['waiting_custom_amount'] = True
+        context.user_data["waiting_custom_amount"] = True
         return
     
-    # Обрабатываем предустановленные суммы
-    amount_map = {
-        "donate_100": 100,
-        "donate_300": 300,
-        "donate_1000": 1000
-    }
-    
+    # Обработка фиксированных сумм
+    amount_map = {"donate_100": 100, "donate_300": 300, "donate_1000": 1000}
     amount = amount_map.get(data)
     if not amount:
         return

@@ -42,7 +42,8 @@ from jobs import send_reminder_notification
 
 menu_filter = (
     filters.Regex(r"^📋 Мои задачи$") |
-    filters.Regex(r"^🧹 Удалить выполненные$")
+    filters.Regex(r"^🧹 Удалить выполненные$") |
+    filters.Regex(r"^🫶 Поддержи проект$")
 ) & ~filters.COMMAND
 
 async def setup_commands(application):
