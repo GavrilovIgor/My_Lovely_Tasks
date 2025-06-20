@@ -2,6 +2,9 @@ import sqlite3
 import logging
 import re
 import os
+import requests
+import uuid
+import base64
 from database import DB_PATH
 from typing import List, Tuple, Optional
 from datetime import datetime, timedelta, timezone
@@ -12,8 +15,7 @@ from telegram.ext import ContextTypes, ConversationHandler, PreCheckoutQueryHand
 from database import (
     get_tasks_db, toggle_task_status_db, add_task_db, delete_task_db,
     delete_completed_tasks_for_user, get_tasks_with_reminders, set_reminder,
-    update_task_priority, toggle_task_db, get_user_donations_db, get_total_donations_db, add_donation_db
-)
+    update_task_priority, toggle_task_db, get_user_donations_db, get_total_donations_db, add_donation_db)
 from keyboards import get_main_keyboard, get_task_list_markup, get_cancel_keyboard, priority_emoji
 from utils import extract_categories
 
@@ -1297,6 +1299,8 @@ async def save_custom_reminder(update: Update, context: ContextTypes.DEFAULT_TYP
 
 # Константы для поддержки
 PAYMENTS_TOKEN = os.getenv("PAYMENTS_TOKEN", "381764678:TEST:100037")
+YOOKASSA_SHOP_ID = os.getenv("YOOKASSA_SHOP_ID")
+YOOKASSA_SECRET_KEY = os.getenv("YOOKASSA_SECRET_KEY")
 
 async def support_developer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Показать меню поддержки разработчика с вариантами донатов"""
@@ -1309,20 +1313,17 @@ async def support_developer(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     keyboard = [
         [InlineKeyboardButton("100₽ - ☕", callback_data="donate_100")],
         [InlineKeyboardButton("300₽ - 🍕", callback_data="donate_300")],
-        [InlineKeyboardButton("1000₽ - 🎁", callback_data="donate_1000")],
+        [InlineKeyboardButton("1000₽ - 💪", callback_data="donate_1000")],
         [InlineKeyboardButton("💰 Другая сумма", callback_data="donate_custom")]
     ]
     
-    message_text = "💝 **Поддержи проект!**\n\n"
+    message_text = "🌟 **Поддержи проект!**\n\n"
     message_text += "Этот бот создан с любовью и полностью бесплатен. "
-    message_text += "Если он помогает тебе организовать дела, буду благодарен за поддержку!\n\n"
+    message_text += "Если он помогает тебе организовать дела, буду благодарен за поддержку! 🫶\n\n"
     
     if user_donations > 0:
         message_text += f"💖 Твои донаты: **{user_donations}₽**\n"
-    
-    if total_count > 0:
-        message_text += f"🌟 Всего собрано: **{total_amount}₽** от {total_count} человек"
-    
+
     message_text += "\n\n_Спасибо за поддержку!_ 🙏"
     
     await update.message.reply_text(
@@ -1340,11 +1341,23 @@ async def handle_donation_callback(update: Update, context: ContextTypes.DEFAULT
     
     if data == "donate_custom":
         await query.edit_message_text(
-            "💰 Введи сумму доната (от 50₽ до 15000₽)\n\n"
-            "Например: 500 или 1500",
+            "🤗 Введи свою сумму от 100₽ до 15000₽\n\n",
             parse_mode="Markdown"
         )
         context.user_data["waiting_custom_amount"] = True
+        return
+    
+    if data == "cancel_payment":
+        context.user_data.pop('donation_amount', None)
+        await query.edit_message_text("❌ Оплата отменена.")
+        return
+    
+    if data.startswith("payment_"):
+        parts = data.split("_")
+        payment_method = parts[1]  # card или sbp
+        amount = int(parts[2])
+        
+        await send_donation_invoice(query, context, amount, payment_method)
         return
     
     # Обработка фиксированных сумм
@@ -1353,62 +1366,62 @@ async def handle_donation_callback(update: Update, context: ContextTypes.DEFAULT
     if not amount:
         return
     
-    await send_donation_invoice(query, context, amount)
+    await show_payment_methods(query, context, amount)
 
-async def send_donation_invoice(query_or_update, context: ContextTypes.DEFAULT_TYPE, amount: int) -> None:
-    """Отправляет инвойс для пожертвования"""
-    amount_in_kopecks = amount * 100  # Переводим в копейки
+async def send_donation_invoice(query_or_update, context: ContextTypes.DEFAULT_TYPE, amount: int, payment_method: str = "card") -> None:
+    """Отправляет ссылку на оплату через ЮKassa"""
     
-    # Определяем описание в зависимости от суммы
-    descriptions = {
-        100: "На кофе разработчику ☕",
-        300: "На обед разработчику 🍕", 
-        1000: "Серьезная поддержка 💪"
-    }
+    if hasattr(query_or_update, 'from_user'):
+        user_id = query_or_update.from_user.id
+    else:
+        user_id = query_or_update.effective_user.id
     
-    description = descriptions.get(amount, f"Поддержка проекта на {amount}₽")
+    payment = create_yookassa_payment(amount, payment_method, user_id)
     
-    try:
-        if hasattr(query_or_update, 'effective_chat'):
-            chat_id = query_or_update.effective_chat.id
-        else:
-            chat_id = query_or_update.message.chat.id
-        
-        await context.bot.send_invoice(
-            chat_id=chat_id,
-            title="Поддержка разработчика",
-            description=f"Добровольное пожертвование: {description}\n\n"
-                       f"Спасибо за поддержку проекта! 💙",
-            payload=f"donation_{amount}",
-            provider_token=PAYMENTS_TOKEN,
-            currency="RUB",
-            prices=[LabeledPrice(label=description, amount=amount_in_kopecks)],
-            start_parameter="donation",
-            need_name=False,
-            need_phone_number=False,
-            need_email=False,
-            need_shipping_address=False,
-            send_phone_number_to_provider=False,
-            send_email_to_provider=False,
-            is_flexible=False
-        )
-        
-        if hasattr(query_or_update, 'edit_message_text'):
-            await query_or_update.edit_message_text(
-                f"💝 Спасибо за желание поддержать проект!\n\n"
-                f"Сумма: **{amount}₽**\n"
-                f"Описание: {description}",
-                parse_mode='Markdown'
-            )
-            
-    except Exception as e:
-        logger.error(f"Error sending donation invoice: {e}")
-        error_text = "Извините, произошла ошибка при создании платежа. Попробуйте позже."
-        
+    if not payment:
+        error_text = "❌ Извините, произошла ошибка при создании платежа. Попробуйте позже."
         if hasattr(query_or_update, 'edit_message_text'):
             await query_or_update.edit_message_text(error_text)
         else:
             await query_or_update.message.reply_text(error_text)
+        return
+    
+    payment_url = payment.get('confirmation', {}).get('confirmation_url')
+    
+    if not payment_url:
+        error_text = "❌ Не удалось получить ссылку на оплату. Попробуйте позже."
+        if hasattr(query_or_update, 'edit_message_text'):
+            await query_or_update.edit_message_text(error_text)
+        else:
+            await query_or_update.message.reply_text(error_text)
+        return
+    
+    method_text = "💳 Банковской картой" if payment_method == "card" else "📱 Через СБП"
+    
+    keyboard = [
+        [InlineKeyboardButton("💰 Перейти к оплате", url=payment_url)],
+        [InlineKeyboardButton("❌ Отмена", callback_data="cancel_payment")]
+    ]
+    
+    text = (
+        f"💝 **Спасибо за желание поддержать проект!**\n\n"
+        f"💰 Сумма: **{amount}₽**\n"
+        f"💳 Способ: {method_text}\n\n"
+        f"Нажмите кнопку ниже для перехода к оплате:"
+    )
+    
+    if hasattr(query_or_update, 'edit_message_text'):
+        await query_or_update.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+    else:
+        await query_or_update.message.reply_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
 
 async def handle_custom_donation_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обрабатывает ввод произвольной суммы пожертвования"""
@@ -1418,9 +1431,10 @@ async def handle_custom_donation_amount(update: Update, context: ContextTypes.DE
     try:
         amount = int(update.message.text.strip())
         
-        if amount < 50:
+        if amount < 100:
             await update.message.reply_text(
-                "Минимальная сумма поддержки: 50₽\n"
+                "⚠️ Минимальная сумма поддержки: 100₽\n\n"
+                "Это ограничение платежной системы.\n"
                 "Попробуйте ввести другую сумму:"
             )
             return
@@ -1433,14 +1447,15 @@ async def handle_custom_donation_amount(update: Update, context: ContextTypes.DE
             return
         
         context.user_data['waiting_custom_amount'] = False
-        await send_donation_invoice(update, context, amount)
+        context.user_data['donation_amount'] = amount
+        
+        await show_payment_methods(update, context, amount)
         
     except ValueError:
         await update.message.reply_text(
             "Пожалуйста, введите корректную сумму числом.\n"
             "Например: 500"
         )
-
 async def pre_checkout_donation_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработчик предварительной проверки пожертвования"""
     query = update.pre_checkout_query
@@ -1483,3 +1498,107 @@ async def successful_donation_handler(update: Update, context: ContextTypes.DEFA
     )
     
     logger.info(f"Successful donation: user_id={user_id}, amount={amount}₽, payment_id={payment.telegram_payment_charge_id}")
+
+async def show_payment_methods(update, context: ContextTypes.DEFAULT_TYPE, amount: int) -> None:
+    """Показывает способы оплаты"""
+    keyboard = [
+        [InlineKeyboardButton("💳 Банковской картой", callback_data=f"payment_card_{amount}")],
+        [InlineKeyboardButton("📱 СБП (Быстрые платежи)", callback_data=f"payment_sbp_{amount}")],
+        [InlineKeyboardButton("❌ Отмена", callback_data="cancel_payment")]
+    ]
+    
+    text = (
+        f"💰 **Сумма: {amount}₽**\n\n"
+        "Выберите способ оплаты:\n\n"
+        "💳 **Банковская карта** - обычная оплата картой\n"
+        "📱 **СБП** - быстрая оплата через приложение банка"
+    )
+    
+    if hasattr(update, 'message'):
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    else:
+        await update.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+def create_yookassa_payment(amount: int, payment_method: str, user_id: int) -> dict:
+    """Создает платеж через ЮKassa API"""
+    
+    logger.info(f"Creating YooKassa payment: amount={amount}, method={payment_method}, user_id={user_id}")
+    logger.info(f"YOOKASSA_SHOP_ID: {'SET' if YOOKASSA_SHOP_ID else 'NOT SET'}")
+    logger.info(f"YOOKASSA_SECRET_KEY: {'SET' if YOOKASSA_SECRET_KEY else 'NOT SET'}")
+    
+    # Проверяем наличие учетных данных ЮKassa
+    if not YOOKASSA_SHOP_ID or not YOOKASSA_SECRET_KEY:
+        logger.error("YooKassa credentials not configured")
+        return None
+    
+    credentials = f"{YOOKASSA_SHOP_ID}:{YOOKASSA_SECRET_KEY}"
+    encoded_credentials = base64.b64encode(credentials.encode()).decode()
+    
+    headers = {
+        'Authorization': f'Basic {encoded_credentials}',
+        'Idempotence-Key': str(uuid.uuid4()),
+        'Content-Type': 'application/json'
+    }
+    
+    payment_data = {
+        "amount": {
+            "value": f"{amount}.00",
+            "currency": "RUB"
+        },
+        "confirmation": {
+            "type": "redirect",
+            "return_url": f"https://t.me/PocketToDoBot"
+        },
+        "capture": True,
+        "description": f"Поддержка проекта - {amount}₽",
+        "receipt": {
+            "customer": {
+                "email": "support@example.com"
+            },
+            "items": [
+                {
+                    "description": "Поддержка проекта",
+                    "quantity": "1.00",
+                    "amount": {
+                        "value": f"{amount}.00",
+                        "currency": "RUB"
+                    },
+                    "vat_code": 1,
+                    "payment_mode": "full_payment",
+                    "payment_subject": "service"
+                }
+            ]
+        },
+        "metadata": {
+            "user_id": str(user_id)
+        }
+    }
+    
+    if payment_method == "sbp":
+        payment_data["payment_method_data"] = {
+            "type": "sbp"
+        }
+    
+    # ДОБАВЛЯЕМ НЕДОСТАЮЩУЮ ЧАСТЬ:
+    try:
+        logger.info(f"Sending request to YooKassa API...")
+        response = requests.post(
+            'https://api.yookassa.ru/v3/payments',
+            headers=headers,
+            json=payment_data,
+            timeout=30
+        )
+        
+        logger.info(f"YooKassa API response: {response.status_code}")
+        
+        if response.status_code == 200:
+            payment_result = response.json()
+            logger.info(f"Payment created successfully: {payment_result.get('id')}")
+            return payment_result
+        else:
+            logger.error(f"YooKassa API error: {response.status_code}, {response.text}")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Error creating YooKassa payment: {e}")
+        return None

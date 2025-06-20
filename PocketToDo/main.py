@@ -12,6 +12,12 @@ from dotenv import load_dotenv
 # Загрузка переменных окружения
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
+YOOKASSA_SHOP_ID = os.getenv("YOOKASSA_SHOP_ID")
+YOOKASSA_SECRET_KEY = os.getenv("YOOKASSA_SECRET_KEY")
+print(f"TOKEN: {'SET' if TOKEN else 'NOT SET'}")
+print(f"YOOKASSA_SHOP_ID: {'SET' if YOOKASSA_SHOP_ID else 'NOT SET'}")
+print(f"YOOKASSA_SECRET_KEY: {'SET' if YOOKASSA_SECRET_KEY else 'NOT SET'}")
+
 DB_PATH = "data/tasks.db"
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
@@ -102,7 +108,7 @@ def main():
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("list", list_tasks))
     app.add_handler(CommandHandler("stop", stop_bot))
-    app.add_handler(CallbackQueryHandler(handle_donation_callback, pattern="^donate_"))
+    app.add_handler(CallbackQueryHandler(handle_donation_callback, pattern="^(donate_|payment_|cancel_payment)"))
     app.add_handler(CallbackQueryHandler(task_action))
     app.add_handler(conv_handler)
     app.add_handler(delete_conv_handler)
