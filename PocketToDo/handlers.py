@@ -140,12 +140,12 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     try:
         if update.callback_query:
             await update.callback_query.edit_message_text(
-                text=" ",
+                text="📋 Мои задачи",
                 reply_markup=keyboard_markup
             )
         else:
             await update.message.reply_text(
-                text=" ",
+                text="📋 Мои задачи",
                 reply_markup=keyboard_markup
             )
     except Exception as e:
@@ -239,13 +239,17 @@ async def save_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ConversationHandler.END
 
 async def add_task_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    logger.info(f"add_task_from_text called with text: '{update.message.text}'")
+    
     # Проверяем, остановлен ли бот для пользователя
     if hasattr(context, 'user_data') and context.user_data.get('bot_stopped', False):
+        logger.info("Bot is stopped for user")
         return
     
     # Простая проверка: если пользователь в процессе установки напоминания
     if (hasattr(context, 'user_data') and 
         context.user_data.get('reminder_task_id')):
+        logger.info("User is setting reminder")
         return
     
     # Проверяем, ожидается ли ввод суммы пожертвования
@@ -621,11 +625,20 @@ async def set_task_priority(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if hasattr(context, 'user_data') and context.user_data.get('active_category_view', False):
         # Получаем текущую категорию и возвращаемся к меню приоритетов категории
         current_category = context.user_data.get('current_category', '')
-        # Имитируем callback_data для show_category_priority
-        original_data = query.data
-        query.data = f'category_priority_mode_{current_category}'
-        await show_category_priority(update, context)
-        query.data = original_data
+        # Создаем новый Update с правильным callback_data
+        from types import SimpleNamespace
+        new_query = SimpleNamespace()
+        new_query.data = f'category_priority_mode_{current_category}'
+        new_query.answer = query.answer
+        new_query.edit_message_text = query.edit_message_text
+        new_query.from_user = query.from_user
+        
+        # Создаем новый Update
+        new_update = SimpleNamespace()
+        new_update.callback_query = new_query
+        new_update.effective_chat = update.effective_chat
+        
+        await show_category_priority(new_update, context)
     else:
         await show_priority_menu(update, context)
 

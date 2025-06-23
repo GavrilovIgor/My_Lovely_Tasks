@@ -6,14 +6,24 @@ from typing import Tuple, List, Optional
 logger = logging.getLogger(__name__)
 
 def extract_reminder_time(text: str) -> Tuple[Optional[datetime], str]:
-    logger.info(f"extract_reminder_time: {text}")
+    logger.info(f"extract_reminder_time called with: '{text}'")
     # Новый паттерн: дата и время (например, 29.05 10:00)
     match = re.search(r'(\d{1,2})\.(\d{1,2})\s+(\d{1,2}):(\d{2})', text)
     if match:
+        logger.info(f"Found date pattern: {match.group(0)}")
         day = int(match.group(1))
         month = int(match.group(2))
         hour = int(match.group(3))
         minute = int(match.group(4))
+        logger.info(f"Parsed: day={day}, month={month}, hour={hour}, minute={minute}")
+    else:
+        logger.info("No date pattern found, checking time-only pattern")
+        # Старый паттерн: только время
+        match = re.search(r'(\d{1,2}):(\d{2})', text)
+        if match:
+            logger.info(f"Found time pattern: {match.group(0)}")
+        else:
+            logger.info("No time pattern found at all")
         now = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=3)))
         year = now.year
         # Если дата уже прошла в этом году — переносим на следующий

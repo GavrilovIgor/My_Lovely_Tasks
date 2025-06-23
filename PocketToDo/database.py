@@ -70,6 +70,7 @@ def init_db() -> None:
         conn.commit()
 
 def add_task_db(user_id: int, text: str, priority: int = 0) -> int:
+    logger.info(f"add_task_db called: user_id={user_id}, text='{text}', priority={priority}")
     from utils import extract_reminder_time, extract_priority, extract_categories
 
     # Извлекаем приоритет из текста задачи
