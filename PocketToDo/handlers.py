@@ -17,7 +17,7 @@ from database import (
     delete_completed_tasks_for_user, get_tasks_with_reminders, set_reminder,
     update_task_priority, toggle_task_db, get_user_donations_db, get_total_donations_db, add_donation_db)
 from keyboards import get_main_keyboard, get_task_list_markup, get_cancel_keyboard, priority_emoji
-from utils import extract_categories
+from utils import extract_categories, extract_reminder_time, extract_priority
 
 logger = logging.getLogger(__name__)
 
@@ -764,7 +764,7 @@ async def show_tasks_by_category(update: Update, context: ContextTypes.DEFAULT_T
     ])
     
     # Добавляем красивый заголовок категории
-    keyboard.append([InlineKeyboardButton(text=f"────────── 📂 #{category} ──────────", callback_data="divider")])
+    keyboard.append([InlineKeyboardButton(text=f"────────── #{category} ──────────", callback_data="divider")])
     
     # Добавляем задачи категории
     if not filtered_tasks:
@@ -1101,9 +1101,6 @@ async def show_category_priority(update: Update, context: ContextTypes.DEFAULT_T
             category_tasks.append(task)
     
     keyboard = []
-    # Добавляем красивый заголовок приоритетов для категории
-    keyboard.append([InlineKeyboardButton(text=f"────────── 🔢 #{category} ──────────", callback_data="divider")])
-    
     # Убираем группировку, показываем все задачи подряд
     for task_id, text, done, priority, reminder_time in category_tasks:
         # Определяем статус задачи
@@ -1167,11 +1164,8 @@ async def show_category_reminder(update: Update, context: ContextTypes.DEFAULT_T
                 category_tasks_without_reminders.append(task)
     
     keyboard = []
-    # Добавляем красивый заголовок напоминаний для категории
-    keyboard.append([InlineKeyboardButton(text=f"────────── 🔔 #{category} ──────────", callback_data="divider")])
-    
     if category_tasks_with_reminders:
-        keyboard.append([InlineKeyboardButton(text="🔔 С напоминаниями:", callback_data="divider")])
+        keyboard.append([InlineKeyboardButton(text="С напоминаниями:", callback_data="divider")])
         for task_id, text, done, priority, reminder_time in category_tasks_with_reminders:
             status = "✅" if done else "☐"
             
@@ -1191,7 +1185,7 @@ async def show_category_reminder(update: Update, context: ContextTypes.DEFAULT_T
             )])
     
     if category_tasks_without_reminders:
-        keyboard.append([InlineKeyboardButton(text="📝 Без напоминаний:", callback_data="divider")])
+        keyboard.append([InlineKeyboardButton(text="Без напоминаний:", callback_data="divider")])
         for task_id, text, done, priority, reminder_time in category_tasks_without_reminders:
             status = "✅" if done else "☐"
             
@@ -1281,57 +1275,56 @@ async def start_custom_reminder(update: Update, context: ContextTypes.DEFAULT_TY
     return SETTING_CUSTOM_REMINDER
 
 async def save_custom_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Сохранить произвольное время напоминания"""
-    if update.effective_chat.type in ['group', 'supergroup']:
-        owner_id = update.effective_chat.id
-    else:
-        owner_id = update.effective_user.id
+    input_text = update.message.text
     
-    input_text = update.message.text.strip()
-    
-    if input_text == "/cancel":
+    if input_text == "❌ Отмена":
         await update.message.reply_text(
-            "❌ Установка напоминания отменена.",
+            "Установка напоминания отменена.",
             reply_markup=get_main_keyboard()
         )
+        # Очищаем данные пользователя
+        context.user_data.pop('reminder_task_id', None)
         return ConversationHandler.END
-    
-    # Используем функцию из utils для парсинга времени
-    from utils import extract_reminder_time
-    reminder_time, _ = extract_reminder_time(input_text)
-    
-    if not reminder_time:
-        await update.message.reply_text(
-            "❌ Неверный формат времени. Попробуйте еще раз:\n\n"
-            "• 15:30 - сегодня в 15:30\n"
-            "• 29.05 10:00 - 29 мая в 10:00\n"
-            "• завтра 09:00 - завтра в 09:00"
-        )
-        return SETTING_CUSTOM_REMINDER
     
     task_id = context.user_data.get('reminder_task_id')
     if not task_id:
         await update.message.reply_text(
-            "❌ Ошибка: задача не найдена.",
+            "Ошибка: задача не найдена.",
             reply_markup=get_main_keyboard()
         )
         return ConversationHandler.END
     
-    # Устанавливаем напоминание
-    set_reminder(task_id, reminder_time)
-    
-    await update.message.reply_text(
-        f"✅ Напоминание установлено на {reminder_time.strftime('%d.%m.%Y %H:%M')}",
-        reply_markup=get_main_keyboard()
-    )
-    
-    # Возвращаемся к списку задач
-    if hasattr(context, 'user_data') and context.user_data.get('active_category_view', False):
-        await show_tasks_by_category(update, context)
-    else:
-        await list_tasks(update, context)
-    
-    return ConversationHandler.END
+    try:
+        reminder_time, _ = extract_reminder_time(input_text)
+        
+        if reminder_time:
+            set_reminder(task_id, reminder_time)
+            await update.message.reply_text(
+                f"⏰ Напоминание установлено на {reminder_time.strftime('%d.%m.%Y %H:%M')}",
+                reply_markup=get_main_keyboard()
+            )
+            # Очищаем данные пользователя
+            context.user_data.pop('reminder_task_id', None)
+            return ConversationHandler.END
+        else:
+            await update.message.reply_text(
+                "❌ Не удалось распознать время. Попробуйте еще раз.\n\n"
+                "Примеры форматов:\n"
+                "• 15:30 - сегодня в 15:30\n"
+                "• 29.05 10:00 - 29 мая в 10:00\n"
+                "• завтра 09:00 - завтра в 09:00\n"
+                "• сегодня 14:30 - сегодня в 14:30",
+                reply_markup=get_cancel_keyboard()
+            )
+            return SETTING_CUSTOM_REMINDER  # Остаемся в том же состоянии
+            
+    except Exception as e:
+        logger.error(f"Error in save_custom_reminder: {e}")
+        await update.message.reply_text(
+            "❌ Произошла ошибка при установке напоминания. Попробуйте еще раз.",
+            reply_markup=get_cancel_keyboard()
+        )
+        return SETTING_CUSTOM_REMINDER
 
 # Константы для поддержки
 PAYMENTS_TOKEN = os.getenv("PAYMENTS_TOKEN", "381764678:TEST:100037")

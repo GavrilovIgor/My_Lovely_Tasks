@@ -7,50 +7,82 @@ logger = logging.getLogger(__name__)
 
 def extract_reminder_time(text: str) -> Tuple[Optional[datetime], str]:
     logger.info(f"extract_reminder_time called with: '{text}'")
-    # Новый паттерн: дата и время (например, 29.05 10:00)
-    match = re.search(r'(\d{1,2})\.(\d{1,2})\s+(\d{1,2}):(\d{2})', text)
-    if match:
-        logger.info(f"Found date pattern: {match.group(0)}")
-        day = int(match.group(1))
-        month = int(match.group(2))
-        hour = int(match.group(3))
-        minute = int(match.group(4))
-        logger.info(f"Parsed: day={day}, month={month}, hour={hour}, minute={minute}")
-    else:
-        logger.info("No date pattern found, checking time-only pattern")
-        # Старый паттерн: только время
+    
+    try:
+        now = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=3)))
+        
+        # Новый паттерн: дата и время (например, 29.05 10:00)
+        match = re.search(r'(\d{1,2})\.(\d{1,2})\s+(\d{1,2}):(\d{2})', text)
+        if match:
+            logger.info(f"Found date pattern: {match.group(0)}")
+            day = int(match.group(1))
+            month = int(match.group(2))
+            hour = int(match.group(3))
+            minute = int(match.group(4))
+            year = now.year
+            
+            try:
+                reminder_time = datetime(year, month, day, hour, minute, tzinfo=timezone(timedelta(hours=3)))
+                if reminder_time < now:
+                    reminder_time = datetime(year + 1, month, day, hour, minute, tzinfo=timezone(timedelta(hours=3)))
+            except ValueError as e:
+                logger.error(f"Invalid date in reminder: {e}")
+                return None, text
+            
+            clean_text = re.sub(r'(\d{1,2})\.(\d{1,2})\s+(\d{1,2}):(\d{2})', '', text).strip()
+            logger.info(f"Reminder time set to: {reminder_time}")
+            return reminder_time, clean_text
+        
+        # Паттерн для "завтра ЧЧ:ММ"
+        match = re.search(r'завтра\s+(\d{1,2}):(\d{2})', text, re.IGNORECASE)
+        if match:
+            logger.info(f"Found 'завтра' pattern: {match.group(0)}")
+            hour = int(match.group(1))
+            minute = int(match.group(2))
+            
+            reminder_time = datetime(now.year, now.month, now.day, hour, minute, tzinfo=timezone(timedelta(hours=3)))
+            reminder_time = reminder_time + timedelta(days=1)  # Добавляем день для "завтра"
+            
+            clean_text = re.sub(r'завтра\s+\d{1,2}:\d{2}', '', text, flags=re.IGNORECASE).strip()
+            logger.info(f"Tomorrow reminder time set to: {reminder_time}")
+            return reminder_time, clean_text
+        
+        # Паттерн для "сегодня ЧЧ:ММ"
+        match = re.search(r'сегодня\s+(\d{1,2}):(\d{2})', text, re.IGNORECASE)
+        if match:
+            logger.info(f"Found 'сегодня' pattern: {match.group(0)}")
+            hour = int(match.group(1))
+            minute = int(match.group(2))
+            
+            reminder_time = datetime(now.year, now.month, now.day, hour, minute, tzinfo=timezone(timedelta(hours=3)))
+            if reminder_time < now:
+                reminder_time = reminder_time + timedelta(days=1)  # Если время уже прошло, переносим на завтра
+            
+            clean_text = re.sub(r'сегодня\s+\d{1,2}:\d{2}', '', text, flags=re.IGNORECASE).strip()
+            logger.info(f"Today reminder time set to: {reminder_time}")
+            return reminder_time, clean_text
+        
+        # Старый паттерн: только время (ЧЧ:ММ)
         match = re.search(r'(\d{1,2}):(\d{2})', text)
         if match:
-            logger.info(f"Found time pattern: {match.group(0)}")
-        else:
-            logger.info("No time pattern found at all")
-        now = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=3)))
-        year = now.year
-        # Если дата уже прошла в этом году — переносим на следующий
-        try:
-            reminder_time = datetime(year, month, day, hour, minute, tzinfo=timezone(timedelta(hours=3)))
+            logger.info(f"Found time-only pattern: {match.group(0)}")
+            hour = int(match.group(1))
+            minute = int(match.group(2))
+            
+            reminder_time = datetime(now.year, now.month, now.day, hour, minute, tzinfo=timezone(timedelta(hours=3)))
             if reminder_time < now:
-                reminder_time = datetime(year + 1, month, day, hour, minute, tzinfo=timezone(timedelta(hours=3)))
-        except ValueError:
-            logger.info("Invalid date in reminder")
-            return None, text
-        clean_text = re.sub(r'(\d{1,2})\.(\d{1,2})\s+(\d{1,2}):(\d{2})', '', text).strip()
-        logger.info(f"Reminder time set to: {reminder_time}")
-        return reminder_time, clean_text
-    # Старый паттерн: только время
-    match = re.search(r'(\d{1,2}):(\d{2})', text)
-    if match:
-        hour = int(match.group(1))
-        minute = int(match.group(2))
-        now = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=3)))
-        reminder_time = datetime(now.year, now.month, now.day, hour, minute, tzinfo=timezone(timedelta(hours=3)))
-        if reminder_time < now:
-            reminder_time = reminder_time + timedelta(days=1)
-        clean_text = re.sub(r'\d{1,2}:\d{2}', '', text).strip()
-        logger.info(f"Reminder time set to: {reminder_time}")
-        return reminder_time, clean_text
-    logger.info("No time found in text")
-    return None, text
+                reminder_time = reminder_time + timedelta(days=1)
+            
+            clean_text = re.sub(r'\d{1,2}:\d{2}', '', text).strip()
+            logger.info(f"Time-only reminder set to: {reminder_time}")
+            return reminder_time, clean_text
+        
+        logger.info("No time pattern found at all")
+        return None, text
+        
+    except Exception as e:
+        logger.error(f"Unexpected error in extract_reminder_time: {e}")
+        return None, text
 
 def extract_categories(text: str) -> List[str]:
     hashtags = re.findall(r'#(\w+)', text)
