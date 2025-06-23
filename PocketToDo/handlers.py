@@ -115,7 +115,7 @@ async def stop_bot(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     from telegram import ReplyKeyboardRemove
     await update.message.reply_text(
         "🛑 Бот остановлен!\n\n"
-        "Клавиатура убрана. Чтобы снова запустить бота, используйте команду /start",
+        "Чтобы снова запустить бота, используйте команду /start",
         reply_markup=ReplyKeyboardRemove()
     )
     
@@ -125,7 +125,7 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if update.effective_chat.type in ['group', 'supergroup']:
         entity_id = update.effective_chat.id
     else:
-        entity_id = update.effective_user.id  # ✅ Исправлено!
+        entity_id = update.effective_user.id
     tasks = get_tasks_db(entity_id, only_open=False)
 
     # Устанавливаем флаги в контексте
@@ -140,12 +140,12 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     try:
         if update.callback_query:
             await update.callback_query.edit_message_text(
-                text="Ваши задачи:",
+                text=" ",
                 reply_markup=keyboard_markup
             )
         else:
             await update.message.reply_text(
-                text="Ваши задачи:",
+                text=" ",
                 reply_markup=keyboard_markup
             )
     except Exception as e:
@@ -160,7 +160,7 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             chat_id = update.effective_chat.id
             await context.bot.send_message(
                 chat_id=chat_id,
-                text="Ваши задачи:",
+                text="Мои задачи:",
                 reply_markup=keyboard_markup
             )
         except Exception as e2:
@@ -307,7 +307,6 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             else:
                 owner_id = update.effective_user.id
             delete_completed_tasks_for_user(owner_id)
-            await update.message.reply_text("Выполненные задачи удалены", reply_markup=get_main_keyboard())
             if hasattr(context, 'user_data') and context.user_data.get('active_category_view', False):
                 await show_tasks_by_category(update, context)
             else:
@@ -555,11 +554,16 @@ async def show_priority_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
     for i, (task_id, text, done, priority, reminder_time) in enumerate(tasks, 1):
         # Формируем текст задачи с приоритетом
         status = "✅" if done else "☐"
+        
+        # Правильно инициализируем task_text
+        task_text = status
+        
         if priority > 0:
             priority_icon = priority_emoji.get(priority, "")
-            task_text = f"{status} {priority_icon} {text}"
-        else:
-            task_text = f"{status} {priority_icon} {text}" if priority > 0 else f"{status} {text}"
+            task_text = f"{status}{priority_icon}"
+        
+        # Добавляем текст задачи
+        task_text = f"{task_text} {text}"
             
         keyboard.append([InlineKeyboardButton(
             text=task_text, 
@@ -666,7 +670,7 @@ async def show_categories_menu(update: Update, context: ContextTypes.DEFAULT_TYP
         ])
         keyboard.append([
             InlineKeyboardButton(
-                text="Добавьте #категорию к задаче",
+                text="Напишите задачу и #категория",
                 callback_data="divider"
             )
         ])
@@ -733,12 +737,12 @@ async def show_tasks_by_category(update: Update, context: ContextTypes.DEFAULT_T
     
     # Добавляем кнопку статуса выполнения (отдельная строка)
     keyboard.append([
-        InlineKeyboardButton(text=f"🔄 [ {done_count}/{total_count} выполнено ]", callback_data=f"toggle_all_category_{category}")
+        InlineKeyboardButton(text=f"🔄 [ {done_count}/{total_count} ] [ Отметить все ]", callback_data=f"toggle_all_category_{category}")
     ])
     
     # Добавляем кнопку приоритетов (отдельная строка)
     keyboard.append([
-        InlineKeyboardButton(text="🔢 [ Определить приоритет ]", callback_data=f"category_priority_mode_{category}")
+        InlineKeyboardButton(text="🔢 [ Приоритет ]", callback_data=f"category_priority_mode_{category}")
     ])
     
     # Добавляем кнопку напоминаний (отдельная строка)
@@ -746,7 +750,8 @@ async def show_tasks_by_category(update: Update, context: ContextTypes.DEFAULT_T
         InlineKeyboardButton(text="🆙 [ Напоминания ]", callback_data=f"category_reminder_mode_{category}")
     ])
     
-    keyboard.append([InlineKeyboardButton(text="─" * 20, callback_data="divider")])
+    # Добавляем красивый заголовок категории
+    keyboard.append([InlineKeyboardButton(text=f"────────── 📂 #{category} ──────────", callback_data="divider")])
     
     # Добавляем задачи категории
     if not filtered_tasks:
@@ -755,8 +760,10 @@ async def show_tasks_by_category(update: Update, context: ContextTypes.DEFAULT_T
         for task_id, text, done, priority, reminder_time in filtered_tasks:
             status = "✅" if done else "☐"
             
-            # Добавляем иконку приоритета
-            task_text = f"{status}"
+            # Правильно инициализируем task_text
+            task_text = status
+            
+            # Добавляем иконку приоритета ПОСЛЕ статуса
             if priority > 0:
                 priority_icon = f"{priority_emoji.get(priority, '')}"
                 task_text = f"{status}{priority_icon}"
@@ -764,6 +771,8 @@ async def show_tasks_by_category(update: Update, context: ContextTypes.DEFAULT_T
             # Добавляем иконку напоминания
             if reminder_time:
                 task_text = f"{task_text}🔔"
+            
+            # Добавляем текст задачи
             task_text = f"{task_text} {text}"
             
             keyboard.append([InlineKeyboardButton(text=task_text, callback_data=f"toggle_{task_id}")])
@@ -775,10 +784,10 @@ async def show_tasks_by_category(update: Update, context: ContextTypes.DEFAULT_T
     if not hasattr(context, 'user_data'):
         context.user_data = {}
     context.user_data['active_category_view'] = True
-    context.user_data['current_category'] = category  # ← ДОБАВЛЯЕМ ЭТО!
+    context.user_data['current_category'] = category
     context.user_data['current_view'] = {'type': 'category', 'category': category}
     
-    message_text = f"📂 Категория #{category}:"
+    message_text = f"Категория #{category}:"
     
     if query:
         await query.edit_message_text(text=message_text, reply_markup=InlineKeyboardMarkup(keyboard))
@@ -815,15 +824,16 @@ async def show_reminders_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
             tasks_without_reminders.append(task)
     
     keyboard = []
-    keyboard.append([InlineKeyboardButton(text="─" * 20, callback_data="divider")])
     
     if tasks_with_reminders:
-        keyboard.append([InlineKeyboardButton(text="🔔 С напоминаниями:", callback_data="divider")])
+        keyboard.append([InlineKeyboardButton(text="С напоминаниями:", callback_data="divider")])
         for task_id, text, done, priority, reminder_time in tasks_with_reminders:
             status = "✅" if done else "☐"
             
+            # Правильно инициализируем task_text
+            task_text = status
+            
             # Добавляем приоритет ПОСЛЕ статуса, потом напоминание
-            task_text = f"{status}"
             if priority > 0:
                 priority_icon = f"{priority_emoji.get(priority, '')}"
                 task_text = f"{status}{priority_icon}"
@@ -836,16 +846,19 @@ async def show_reminders_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
             )])
     
     if tasks_without_reminders:
-        keyboard.append([InlineKeyboardButton(text="📝 Без напоминаний:", callback_data="divider")])
+        keyboard.append([InlineKeyboardButton(text="Без напоминаний:", callback_data="divider")])
         for task_id, text, done, priority, reminder_time in tasks_without_reminders:
             status = "✅" if done else "☐"
             
+            # Правильно инициализируем task_text
+            task_text = status
+            
             # Добавляем приоритет ПОСЛЕ статуса
-            task_text = f"{status}"
             if priority > 0:
                 priority_icon = f"{priority_emoji.get(priority, '')}"
                 task_text = f"{status}{priority_icon}"
             
+            # Добавляем текст задачи
             task_text = f"{task_text} {text}"
             
             keyboard.append([InlineKeyboardButton(
@@ -1075,19 +1088,23 @@ async def show_category_priority(update: Update, context: ContextTypes.DEFAULT_T
             category_tasks.append(task)
     
     keyboard = []
-    keyboard.append([InlineKeyboardButton(text="─" * 20, callback_data="divider")])
+    # Добавляем красивый заголовок приоритетов для категории
+    keyboard.append([InlineKeyboardButton(text=f"────────── 🔢 #{category} ──────────", callback_data="divider")])
     
     # Убираем группировку, показываем все задачи подряд
     for task_id, text, done, priority, reminder_time in category_tasks:
         # Определяем статус задачи
         status = "✅" if done else "☐"
         
+        # Правильно инициализируем task_text
+        task_text = status
+        
         # Добавляем приоритет ПОСЛЕ статуса
-        task_text = f"{status}"
         if priority > 0:
             priority_icon = f"{priority_emoji.get(priority, '')}"
             task_text = f"{status}{priority_icon}"
         
+        # Добавляем текст задачи
         task_text = f"{task_text} {text}"
         
         keyboard.append([InlineKeyboardButton(
@@ -1137,15 +1154,18 @@ async def show_category_reminder(update: Update, context: ContextTypes.DEFAULT_T
                 category_tasks_without_reminders.append(task)
     
     keyboard = []
-    keyboard.append([InlineKeyboardButton(text="─" * 20, callback_data="divider")])
+    # Добавляем красивый заголовок напоминаний для категории
+    keyboard.append([InlineKeyboardButton(text=f"────────── 🔔 #{category} ──────────", callback_data="divider")])
     
     if category_tasks_with_reminders:
         keyboard.append([InlineKeyboardButton(text="🔔 С напоминаниями:", callback_data="divider")])
         for task_id, text, done, priority, reminder_time in category_tasks_with_reminders:
             status = "✅" if done else "☐"
             
+            # Правильно инициализируем task_text
+            task_text = status
+            
             # Добавляем приоритет ПОСЛЕ статуса, потом напоминание
-            task_text = f"{status}"
             if priority > 0:
                 priority_icon = f"{priority_emoji.get(priority, '')}"
                 task_text = f"{status}{priority_icon}"
@@ -1162,12 +1182,15 @@ async def show_category_reminder(update: Update, context: ContextTypes.DEFAULT_T
         for task_id, text, done, priority, reminder_time in category_tasks_without_reminders:
             status = "✅" if done else "☐"
             
+            # Правильно инициализируем task_text
+            task_text = status
+            
             # Добавляем приоритет ПОСЛЕ статуса
-            task_text = f"{status}"
             if priority > 0:
                 priority_icon = f"{priority_emoji.get(priority, '')}"
                 task_text = f"{status}{priority_icon}"
             
+            # Добавляем текст задачи
             task_text = f"{task_text} {text}"
             
             keyboard.append([InlineKeyboardButton(
