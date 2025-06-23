@@ -1372,7 +1372,7 @@ async def handle_donation_callback(update: Update, context: ContextTypes.DEFAULT
     
     if data == "cancel_payment":
         context.user_data.pop('donation_amount', None)
-        await query.edit_message_text("❌ Оплата отменена.")
+        await query.edit_message_text("❌ Оплата отменена")
         return
     
     if data.startswith("payment_"):
