@@ -477,6 +477,10 @@ async def task_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await snooze_reminder(update, context)
         return
 
+    if data.startswith("custom_reminder_"):
+        await start_custom_reminder(update, context)
+        return
+
     if data.startswith("filter_category_"):
         await show_tasks_by_category(update, context)
         return
@@ -503,11 +507,9 @@ async def task_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     if data == "back_to_list":
         if hasattr(context, "user_data") and context.user_data.get("active_category_view", False):
-            # Если мы в режиме просмотра категории, возвращаемся к списку категорий
             context.user_data["active_category_view"] = False
             await show_categories_menu(update, context)
         else:
-            # Иначе возвращаемся к общему списку задач
             await list_tasks(update, context)
         return
 
@@ -520,22 +522,17 @@ async def task_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await query.answer("❌")
             return
         
-        # Сначала проверяем, находимся ли мы в режиме просмотра категории
         if hasattr(context, 'user_data') and context.user_data.get("active_category_view", False):
-            # Если в категории - обновляем представление категории
             await show_tasks_by_category(update, context)
         else:
-            # Если в общем списке - обновляем только клавиатуру без перезагрузки сообщения
             try:
                 keyboard_markup = get_task_list_markup(owner_id)
                 await query.edit_message_reply_markup(reply_markup=keyboard_markup)
             except Exception as e:
                 if "Message is not modified" not in str(e):
                     logger.error(f"Error updating keyboard: {e}")
-                # Если не удалось обновить клавиатуру, обновляем весь список
                 await list_tasks(update, context)
         return
-
 
 async def show_priority_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
@@ -893,57 +890,36 @@ async def show_reminders_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
 
 async def show_reminder_options(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Показать опции напоминания для задачи"""
     query = update.callback_query
     await query.answer()
     
-    task_id = int(query.data.split('_')[2])
+    task_id = int(query.data.split("_")[2])
     
-    # Проверяем, находимся ли мы в режиме категории
+    # Определяем callback для возврата
     back_callback = "reminder_mode"
-    current_category = ''  # Инициализируем переменную заранее
-    
     if hasattr(context, 'user_data') and context.user_data.get('active_category_view', False):
-        # Получаем текущую категорию из callback_data
         current_category = context.user_data.get('current_category', '')
         back_callback = f"category_reminder_mode_{current_category}"
-
+    
     keyboard = [
-        [InlineKeyboardButton(text="🔕 Удалить напоминание", callback_data=f"delete_reminder_{task_id}")],
-        [InlineKeyboardButton(text="🔔 30 минут", callback_data=f"snooze_reminder_{task_id}_30")],
-        [InlineKeyboardButton(text="🔔 1 час", callback_data=f"snooze_reminder_{task_id}_60")],
-        [InlineKeyboardButton(text="🔔 На завтра в это же время", callback_data=f"snooze_reminder_{task_id}_tomorrow")],
-        [InlineKeyboardButton(text="🕐 Произвольное время", callback_data=f"custom_reminder_{task_id}")],
-        [InlineKeyboardButton(text="↩️ Назад", callback_data=back_callback)]
+        [InlineKeyboardButton("✅ Задача выполнена", callback_data=f"toggle_{task_id}")],
+        [InlineKeyboardButton("🔕 Удалить напоминание", callback_data=f"delete_reminder_{task_id}")],
+        [InlineKeyboardButton("🔔 Отложить на 1 час", callback_data=f"snooze_reminder_{task_id}_60")],
+        [InlineKeyboardButton("🔔 Отложить на завтра в это же время", callback_data=f"snooze_reminder_{task_id}_tomorrow")],
+        [InlineKeyboardButton("🕐 Произвольное время", callback_data=f"custom_reminder_{task_id}")],
+        [InlineKeyboardButton("↩️ Назад", callback_data=back_callback)]
     ]
     
-    await query.edit_message_text(
-        text="🔔 Выберите действие с напоминанием:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-async def delete_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    Удаляет напоминание для задачи
-    
-    Args:
-        update: Объект обновления Telegram
-        context: Контекст бота
-    """
-    query = update.callback_query
-    await query.answer()
-    
-    # Извлекаем ID задачи из callback_data
-    task_id = int(query.data.split('_')[2])
-    
-    # Удаляем напоминание (устанавливаем NULL)
-    set_reminder(task_id, None)
-    
-    # Возвращаемся к списку напоминаний
-    if hasattr(context, 'user_data') and context.user_data.get('active_category_view', False):
-        await show_category_reminder(update, context)  # ← ПРАВИЛЬНО!
-    else:
-        await show_reminders_menu(update, context)  # ← ПРАВИЛЬНО!
+    try:
+        await query.edit_message_text(
+            text="🔔 Выберите действие с напоминанием:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    except Exception as e:
+        if "Message is not modified" in str(e):
+            pass
+        else:
+            logger.error(f"Error in show_reminder_options: {e}")
 
 async def send_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
     """
@@ -983,76 +959,72 @@ async def send_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
+def now():
+    return datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=3)))
+
 async def snooze_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
-    await query.answer()
-
-    parts = query.data.split('_')
+    
+    parts = query.data.split("_")
     task_id = int(parts[2])
     snooze_value = parts[3]
-
-    # Всегда работаем в московской зоне (UTC+3)
-    now = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=3)))
-
-    # Получаем исходное время напоминания из БД
+    
+    # Получаем информацию о задаче
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("SELECT reminder_time FROM tasks WHERE id = ?", (task_id,))
     result = c.fetchone()
     conn.close()
-
+    
     reminder_time = None
     if result and result[0]:
         try:
             reminder_time = datetime.strptime(result[0], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone(timedelta(hours=3)))
         except Exception:
-            reminder_time = now  # fallback
-
+            reminder_time = now()
+    
     if snooze_value == "tomorrow":
-        # Переносим на завтра в то же время, что было у исходного напоминания
         if reminder_time:
             new_reminder = reminder_time + timedelta(days=1)
         else:
-            new_reminder = now + timedelta(days=1)
+            new_reminder = now() + timedelta(days=1)
         new_reminder = new_reminder.replace(second=0)
     else:
         try:
             minutes = int(snooze_value)
-            new_reminder = now + timedelta(minutes=minutes)
+            new_reminder = now() + timedelta(minutes=minutes)
             new_reminder = new_reminder.replace(second=0)
         except Exception:
-            new_reminder = now + timedelta(hours=1)
+            new_reminder = now() + timedelta(hours=1)
             new_reminder = new_reminder.replace(second=0)
-
+    
     set_reminder(task_id, new_reminder)
     logger.info(f"new reminder set for task {task_id}: {new_reminder}")
     
-    # ВАЖНО: Очищаем reminder_task_id после завершения работы
-    if 'reminder_task_id' in context.user_data:
-        del context.user_data['reminder_task_id']
+    # Отправляем уведомление ОДИН РАЗ
+    await query.answer(f"🔔 Напоминание отложено до {new_reminder.strftime('%d.%m %H:%M')}")
     
-    await update.message.reply_text(
-        f"⏰ Напоминание установлено на {new_reminder.strftime('%d.%m.%Y %H:%M')}",
-        reply_markup=get_main_keyboard()
+    # ✅ ЕДИНСТВЕННОЕ редактирование сообщения
+    await query.edit_message_text(
+        f"🔔 Напоминание отложено до {new_reminder.strftime('%d.%m.%Y %H:%M')}"
     )
+
+async def delete_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Удаление напоминания для задачи"""
+    query = update.callback_query
     
-    return ConversationHandler.END
-
-    # Запускаем новое напоминание
-    task_text = get_task_text_by_id(task_id)
-    if task_text:
-        job_name = f"reminder_{task_id}"
-        current_jobs = context.job_queue.get_jobs_by_name(job_name)
-        for job in current_jobs:
-            job.schedule_removal()
-
-        context.job_queue.run_once(
-            send_reminder,
-            when=(new_reminder - now).total_seconds(),
-            data=(task_id, query.from_user.id, task_text),
-            name=job_name
-        )
-
+    task_id = int(query.data.split("_")[2])
+    
+    # Удаляем напоминание
+    set_reminder(task_id, None)
+    logger.info(f"Reminder deleted for task {task_id}")
+    
+    # Отправляем уведомление ОДИН РАЗ
+    await query.answer("🔕 Напоминание удалено")
+    
+    # ✅ ЕДИНСТВЕННОЕ редактирование сообщения
+    await query.edit_message_text("🔕 Напоминание удалено")
+    
 def get_task_text_by_id(task_id: int) -> Optional[str]:
     """
     Получает текст задачи по её ID
@@ -1269,7 +1241,7 @@ async def start_custom_reminder(update: Update, context: ContextTypes.DEFAULT_TY
              "• завтра 09:00 - завтра в 09:00\n\n",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("❌ Отмена", callback_data="back_to_list")]
-        ])  # ✅ ПРАВИЛЬНО: inline-клавиатура
+        ])
     )
     
     return SETTING_CUSTOM_REMINDER
@@ -1282,7 +1254,6 @@ async def save_custom_reminder(update: Update, context: ContextTypes.DEFAULT_TYP
             "Установка напоминания отменена.",
             reply_markup=get_main_keyboard()
         )
-        # Очищаем данные пользователя
         context.user_data.pop('reminder_task_id', None)
         return ConversationHandler.END
     
@@ -1300,10 +1271,9 @@ async def save_custom_reminder(update: Update, context: ContextTypes.DEFAULT_TYP
         if reminder_time:
             set_reminder(task_id, reminder_time)
             await update.message.reply_text(
-                f"⏰ Напоминание установлено на {reminder_time.strftime('%d.%m.%Y %H:%M')}",
+                f"🔔 Напоминание установлено на {reminder_time.strftime('%d.%m.%Y %H:%M')}",
                 reply_markup=get_main_keyboard()
             )
-            # Очищаем данные пользователя
             context.user_data.pop('reminder_task_id', None)
             return ConversationHandler.END
         else:
@@ -1316,7 +1286,7 @@ async def save_custom_reminder(update: Update, context: ContextTypes.DEFAULT_TYP
                 "• сегодня 14:30 - сегодня в 14:30",
                 reply_markup=get_cancel_keyboard()
             )
-            return SETTING_CUSTOM_REMINDER  # Остаемся в том же состоянии
+            return SETTING_CUSTOM_REMINDER
             
     except Exception as e:
         logger.error(f"Error in save_custom_reminder: {e}")
@@ -1325,6 +1295,9 @@ async def save_custom_reminder(update: Update, context: ContextTypes.DEFAULT_TYP
             reply_markup=get_cancel_keyboard()
         )
         return SETTING_CUSTOM_REMINDER
+    
+    context.user_data.pop('reminder_task_id', None)
+    return ConversationHandler.END
 
 # Константы для поддержки
 PAYMENTS_TOKEN = os.getenv("PAYMENTS_TOKEN", "381764678:TEST:100037")
