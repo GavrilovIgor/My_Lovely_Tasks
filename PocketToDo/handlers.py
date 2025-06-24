@@ -972,14 +972,19 @@ async def snooze_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # Получаем информацию о задаче
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("SELECT reminder_time FROM tasks WHERE id = ?", (task_id,))
+    c.execute("SELECT text, reminder_time FROM tasks WHERE id = ?", (task_id,))
     result = c.fetchone()
-    conn.close()
+    
+    if not result:
+        await query.answer("❌ Задача не найдена")
+        return
+    
+    current_text, reminder_time_str = result
     
     reminder_time = None
-    if result and result[0]:
+    if reminder_time_str:
         try:
-            reminder_time = datetime.strptime(result[0], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone(timedelta(hours=3)))
+            reminder_time = datetime.strptime(reminder_time_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone(timedelta(hours=3)))
         except Exception:
             reminder_time = now()
     
@@ -998,8 +1003,17 @@ async def snooze_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             new_reminder = now() + timedelta(hours=1)
             new_reminder = new_reminder.replace(second=0)
     
-    set_reminder(task_id, new_reminder)
+    # Обновляем текст задачи с новым временем
+    new_text = update_task_text_with_new_time(current_text, new_reminder)
+    
+    # Обновляем и напоминание, и текст задачи
+    c.execute("UPDATE tasks SET reminder_time = ?, text = ? WHERE id = ?", 
+              (new_reminder.strftime("%Y-%m-%d %H:%M:%S"), new_text, task_id))
+    conn.commit()
+    conn.close()
+    
     logger.info(f"new reminder set for task {task_id}: {new_reminder}")
+    logger.info(f"task text updated: {current_text} -> {new_text}")
     
     # Отправляем уведомление ОДИН РАЗ
     await query.answer(f"🔔 Напоминание отложено до {new_reminder.strftime('%d.%m %H:%M')}")
@@ -1008,6 +1022,51 @@ async def snooze_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await query.edit_message_text(
         f"🔔 Напоминание отложено до {new_reminder.strftime('%d.%m.%Y %H:%M')}"
     )
+
+def update_task_text_with_new_time(text: str, new_time: datetime) -> str:
+    """
+    Обновляет время в тексте задачи
+    
+    Args:
+        text: Текущий текст задачи
+        new_time: Новое время напоминания
+        
+    Returns:
+        Обновленный текст задачи
+    """
+    import re
+    
+    # Форматируем новое время
+    new_time_str = new_time.strftime("%H:%M")
+    
+    # Паттерны для поиска времени в тексте
+    patterns = [
+        r'\b\d{1,2}:\d{2}\b',  # Время в формате ЧЧ:ММ или Ч:ММ
+        r'\b\d{1,2}\.\d{1,2}\s+\d{1,2}:\d{2}\b',  # Дата и время
+        r'завтра\s+\d{1,2}:\d{2}\b',  # "завтра ЧЧ:ММ"
+        r'сегодня\s+\d{1,2}:\d{2}\b'  # "сегодня ЧЧ:ММ"
+    ]
+    
+    updated_text = text
+    
+    # Пробуем найти и заменить время
+    for pattern in patterns:
+        if re.search(pattern, updated_text):
+            # Заменяем только время, сохраняя остальную часть
+            if 'завтра' in updated_text.lower():
+                updated_text = re.sub(r'завтра\s+\d{1,2}:\d{2}', f'завтра {new_time_str}', updated_text, flags=re.IGNORECASE)
+            elif 'сегодня' in updated_text.lower():
+                updated_text = re.sub(r'сегодня\s+\d{1,2}:\d{2}', f'сегодня {new_time_str}', updated_text, flags=re.IGNORECASE)
+            else:
+                # Заменяем простое время
+                updated_text = re.sub(r'\b\d{1,2}:\d{2}\b', new_time_str, updated_text)
+            break
+    
+    # Если время не найдено в тексте, добавляем его в конец
+    if updated_text == text:
+        updated_text = f"{text} {new_time_str}"
+    
+    return updated_text
 
 async def delete_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Удаление напоминания для задачи"""
