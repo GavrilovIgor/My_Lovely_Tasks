@@ -761,7 +761,7 @@ async def show_tasks_by_category(update: Update, context: ContextTypes.DEFAULT_T
     ])
     
     # Добавляем красивый заголовок категории
-    keyboard.append([InlineKeyboardButton(text=f"────────── #{category} ──────────", callback_data="divider")])
+    keyboard.append([InlineKeyboardButton(text=f"─────── #{category} ───────", callback_data="divider")])
     
     # Добавляем задачи категории
     if not filtered_tasks:

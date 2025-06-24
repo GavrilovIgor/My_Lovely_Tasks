@@ -53,9 +53,9 @@ def get_task_list_markup(owner_id: int) -> Optional[InlineKeyboardMarkup]:
     ])
     
     # Добавляем красивый заголовок "Мои задачи"
-    keyboard.append([InlineKeyboardButton(text="────────── 📋 Мои задачи ──────────", callback_data="divider")])
+    keyboard.append([InlineKeyboardButton(text="─────── 📋 Мои задачи ───────", callback_data="divider")])
     
-    # Добавляем задачи
+    # Добавляем задач
     for task_id, text, done, priority, reminder_time in tasks:
         status = "✅" if done else "☐"
         
