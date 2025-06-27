@@ -6,12 +6,70 @@ from typing import Tuple, List, Optional
 logger = logging.getLogger(__name__)
 
 def extract_reminder_time(text: str) -> Tuple[Optional[datetime], str]:
-    logger.info(f"extract_reminder_time called with: '{text}'")
+    logger.info(f"extract_reminder_time called with text: '{text}'")
     
     try:
         now = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=3)))
         
-        # Новый паттерн: дата и время (например, 29.05 10:00)
+        # Словарь дней недели
+        weekdays = {
+            'понедельник': 0, 'пн': 0,
+            'вторник': 1, 'вт': 1,
+            'среда': 2, 'ср': 2, 'среду': 2,
+            'четверг': 3, 'чт': 3,
+            'пятница': 4, 'пт': 4, 'пятницу': 4,
+            'суббота': 5, 'сб': 5, 'субботу': 5,
+            'воскресенье': 6, 'вс': 6
+        }
+        
+        # Паттерн для дня недели с временем (понедельник 09:00)
+        weekday_pattern = '|'.join(weekdays.keys())
+        match = re.search(rf'({weekday_pattern})\s+(\d{{1,2}}):(\d{{2}})', text, re.IGNORECASE)
+        if match:
+            logger.info(f"Found weekday with time pattern: {match.group(0)}")
+            weekday_name = match.group(1).lower()
+            hour = int(match.group(2))
+            minute = int(match.group(3))
+            
+            target_weekday = weekdays[weekday_name]
+            current_weekday = now.weekday()
+            
+            # Вычисляем количество дней до нужного дня недели
+            days_ahead = target_weekday - current_weekday
+            if days_ahead <= 0:  # Если день уже прошел на этой неделе или сегодня
+                days_ahead += 7  # Берем следующую неделю
+            
+            target_date = now + timedelta(days=days_ahead)
+            reminder_time = datetime(target_date.year, target_date.month, target_date.day, 
+                                   hour, minute, tzinfo=timezone(timedelta(hours=3)))
+            
+            clean_text = re.sub(rf'({weekday_pattern})\s+(\d{{1,2}}):(\d{{2}})', '', text, flags=re.IGNORECASE).strip()
+            logger.info(f"Weekday reminder time set to: {reminder_time}")
+            return reminder_time, clean_text
+        
+        # Паттерн для дня недели без времени (понедельник) - по умолчанию 09:00
+        match = re.search(rf'\b({weekday_pattern})\b', text, re.IGNORECASE)
+        if match:
+            logger.info(f"Found weekday only pattern: {match.group(0)}")
+            weekday_name = match.group(1).lower()
+            
+            target_weekday = weekdays[weekday_name]
+            current_weekday = now.weekday()
+            
+            # Вычисляем количество дней до нужного дня недели
+            days_ahead = target_weekday - current_weekday
+            if days_ahead <= 0:  # Если день уже прошел на этой неделе или сегодня
+                days_ahead += 7  # Берем следующую неделю
+            
+            target_date = now + timedelta(days=days_ahead)
+            reminder_time = datetime(target_date.year, target_date.month, target_date.day, 
+                                   9, 0, tzinfo=timezone(timedelta(hours=3)))  # По умолчанию 09:00
+            
+            clean_text = re.sub(rf'\b({weekday_pattern})\b', '', text, flags=re.IGNORECASE).strip()
+            logger.info(f"Weekday-only reminder time set to: {reminder_time} (default 09:00)")
+            return reminder_time, clean_text
+        
+        # Паттерн для даты и времени (29.05 10:00)
         match = re.search(r'(\d{1,2})\.(\d{1,2})\s+(\d{1,2}):(\d{2})', text)
         if match:
             logger.info(f"Found date pattern: {match.group(0)}")
@@ -36,33 +94,33 @@ def extract_reminder_time(text: str) -> Tuple[Optional[datetime], str]:
         # Паттерн для "завтра ЧЧ:ММ"
         match = re.search(r'завтра\s+(\d{1,2}):(\d{2})', text, re.IGNORECASE)
         if match:
-            logger.info(f"Found 'завтра' pattern: {match.group(0)}")
+            logger.info(f"Found 'tomorrow' pattern: {match.group(0)}")
             hour = int(match.group(1))
             minute = int(match.group(2))
             
             reminder_time = datetime(now.year, now.month, now.day, hour, minute, tzinfo=timezone(timedelta(hours=3)))
-            reminder_time = reminder_time + timedelta(days=1)  # Добавляем день для "завтра"
+            reminder_time = reminder_time + timedelta(days=1)
             
-            clean_text = re.sub(r'завтра\s+\d{1,2}:\d{2}', '', text, flags=re.IGNORECASE).strip()
+            clean_text = re.sub(r'завтра\s+(\d{1,2}):(\d{2})', '', text, flags=re.IGNORECASE).strip()
             logger.info(f"Tomorrow reminder time set to: {reminder_time}")
             return reminder_time, clean_text
         
         # Паттерн для "сегодня ЧЧ:ММ"
         match = re.search(r'сегодня\s+(\d{1,2}):(\d{2})', text, re.IGNORECASE)
         if match:
-            logger.info(f"Found 'сегодня' pattern: {match.group(0)}")
+            logger.info(f"Found 'today' pattern: {match.group(0)}")
             hour = int(match.group(1))
             minute = int(match.group(2))
             
             reminder_time = datetime(now.year, now.month, now.day, hour, minute, tzinfo=timezone(timedelta(hours=3)))
             if reminder_time < now:
-                reminder_time = reminder_time + timedelta(days=1)  # Если время уже прошло, переносим на завтра
+                reminder_time = reminder_time + timedelta(days=1)
             
-            clean_text = re.sub(r'сегодня\s+\d{1,2}:\d{2}', '', text, flags=re.IGNORECASE).strip()
+            clean_text = re.sub(r'сегодня\s+(\d{1,2}):(\d{2})', '', text, flags=re.IGNORECASE).strip()
             logger.info(f"Today reminder time set to: {reminder_time}")
             return reminder_time, clean_text
         
-        # Старый паттерн: только время (ЧЧ:ММ)
+        # Паттерн для времени без даты (ЧЧ:ММ)
         match = re.search(r'(\d{1,2}):(\d{2})', text)
         if match:
             logger.info(f"Found time-only pattern: {match.group(0)}")
@@ -73,7 +131,7 @@ def extract_reminder_time(text: str) -> Tuple[Optional[datetime], str]:
             if reminder_time < now:
                 reminder_time = reminder_time + timedelta(days=1)
             
-            clean_text = re.sub(r'\d{1,2}:\d{2}', '', text).strip()
+            clean_text = re.sub(r'(\d{1,2}):(\d{2})', '', text).strip()
             logger.info(f"Time-only reminder set to: {reminder_time}")
             return reminder_time, clean_text
         
@@ -83,6 +141,7 @@ def extract_reminder_time(text: str) -> Tuple[Optional[datetime], str]:
     except Exception as e:
         logger.error(f"Unexpected error in extract_reminder_time: {e}")
         return None, text
+
 
 def extract_categories(text: str) -> List[str]:
     hashtags = re.findall(r'#(\w+)', text)
