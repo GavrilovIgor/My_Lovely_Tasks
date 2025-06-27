@@ -43,7 +43,7 @@ from handlers import (start, help_command, list_tasks, add, save_task, task_acti
                      save_custom_reminder, start_custom_reminder, support_developer, 
                      handle_donation_callback, pre_checkout_donation_handler, 
                      successful_donation_handler, stop_bot, handle_feature_notification,
-                     admin_add_feature, admin_list_features, admin_deactivate_feature, test_feature_notifications)
+                     admin_add_feature, admin_list_features, admin_deactivate_feature, test_feature_notifications, promote_test_feature)
 
 from jobs import send_reminder_notification, send_feature_announcements
 
@@ -124,6 +124,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & ~menu_filter, add_task_from_text))
     app.add_handler(MessageHandler(menu_filter, main_menu_handler))
     app.add_handler(CommandHandler("test_notifications", test_feature_notifications))
+    app.add_handler(CommandHandler("promote_feature", promote_test_feature))
     job_queue = app.job_queue
     job_queue.run_repeating(send_reminder_notification, interval=60, first=10)
     job_queue.run_repeating(send_feature_announcements, interval=3600, first=30)

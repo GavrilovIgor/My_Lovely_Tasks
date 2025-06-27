@@ -30,7 +30,7 @@ def init_db() -> None:
         c = conn.cursor()
         c.execute("""CREATE TABLE IF NOT EXISTS tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            userid INTEGER,
+            user_id INTEGER,
             text TEXT,
             done INTEGER DEFAULT 0,
             priority INTEGER DEFAULT 0,
@@ -40,13 +40,12 @@ def init_db() -> None:
         
         c.execute("""CREATE TABLE IF NOT EXISTS donations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            userid INTEGER,
+            user_id INTEGER,
             amount INTEGER,
             payment_id TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )""")
         
-        # Новые таблицы для фич
         c.execute("""CREATE TABLE IF NOT EXISTS feature_announcements (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             feature_name TEXT NOT NULL,
@@ -54,38 +53,17 @@ def init_db() -> None:
             description TEXT NOT NULL,
             version TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            is_active INTEGER DEFAULT 1
+            is_active INTEGER DEFAULT 1,
+            is_test INTEGER DEFAULT 0
         )""")
         
-        c.execute("""CREATE TABLE IF NOT EXISTS user_feature_notifications (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            feature_id INTEGER,
-            sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (feature_id) REFERENCES feature_announcements (id)
-        )""")
-
-        # Добавить миграцию для существующей БД:
-        c.execute("PRAGMA table_info(tasks)")
-        columns = [column[1] for column in c.fetchall()]
-        if 'reminder_sent' not in columns:
-            c.execute("ALTER TABLE tasks ADD COLUMN reminder_sent INTEGER DEFAULT 0")
-            logger.info("Добавлена колонка reminder_sent в таблицу tasks")
-
-        
-        # Проверяем, существует ли колонка priority
-        c.execute("PRAGMA table_info(tasks)")
+        # Проверяем и добавляем недостающие колонки в feature_announcements
+        c.execute("PRAGMA table_info(feature_announcements)")
         columns = [column[1] for column in c.fetchall()]
         
-        # Если колонки priority нет, добавляем ее
-        if 'priority' not in columns:
-            c.execute("ALTER TABLE tasks ADD COLUMN priority INTEGER DEFAULT 0")
-            logger.info("Добавлена колонка priority в таблицу tasks")
-        
-        # Если колонки reminder_time нет, добавляем ее
-        if 'reminder_time' not in columns:
-            c.execute("ALTER TABLE tasks ADD COLUMN reminder_time TIMESTAMP DEFAULT NULL")
-            logger.info("Добавлена колонка reminder_time в таблицу tasks")
+        if "is_test" not in columns:
+            c.execute("ALTER TABLE feature_announcements ADD COLUMN is_test INTEGER DEFAULT 0")
+            logger.info("Добавлена колонка 'is_test' в таблицу feature_announcements")
         
         conn.commit()
 
@@ -109,14 +87,14 @@ def add_task_db(user_id: int, text: str, priority: int = 0) -> int:
         if reminder_time:
             reminder_str = reminder_time.strftime("%Y-%m-%d %H:%M:%S")
             c.execute(
-                "INSERT INTO tasks (userid, text, done, priority, reminder_time) VALUES (?, ?, 0, ?, ?)",
+                "INSERT INTO tasks (user_id, text, done, priority, reminder_time) VALUES (?, ?, 0, ?, ?)",
                 (user_id, text, priority, reminder_str),
             )
             task_id = c.lastrowid
             logger.info(f"Добавлена задача: id={task_id}, user_id={user_id}, text='{text}', priority={priority}, reminder_time={reminder_str}")
         else:
             c.execute(
-                "INSERT INTO tasks (userid, text, done, priority) VALUES (?, ?, 0, ?)",
+                "INSERT INTO tasks (user_id, text, done, priority) VALUES (?, ?, 0, ?)",
                 (user_id, text, priority),
             )
             task_id = c.lastrowid
@@ -305,30 +283,80 @@ def get_total_donations_db() -> tuple:
         result = c.fetchone()
         return (result[0], result[1]) if result else (0, 0)
 
-def add_feature_announcement_db(feature_name: str, title: str, description: str, version: str = None) -> int:
+def add_feature_announcement_db(feature_name: str, title: str, description: str, version: str = None, is_test: bool = False) -> int:
     """Добавляет новое объявление о фиче"""
     with get_connection() as conn:
         c = conn.cursor()
         c.execute("""
-            INSERT INTO feature_announcements (feature_name, title, description, version)
-            VALUES (?, ?, ?, ?)
-        """, (feature_name, title, description, version))
+            INSERT INTO feature_announcements (feature_name, title, description, version, is_test)
+            VALUES (?, ?, ?, ?, ?)
+        """, (feature_name, title, description, version, int(is_test)))
         feature_id = c.lastrowid
         conn.commit()
-        logger.info(f"Добавлено объявление о фиче: {feature_name} (ID: {feature_id})")
+        test_flag = " (ТЕСТ)" if is_test else ""
+        logger.info(f"Добавлено объявление о фиче: {feature_name} (ID: {feature_id}){test_flag}")
         return feature_id
 
-def get_active_features_db() -> List[Tuple]:
+def get_active_features_db(include_test: bool = False) -> List[Tuple]:
     """Получает активные объявления о фичах"""
     with get_connection() as conn:
         c = conn.cursor()
-        c.execute("""
-            SELECT id, feature_name, title, description, version, created_at
-            FROM feature_announcements 
-            WHERE is_active = 1
-            ORDER BY created_at DESC
-        """)
+        if include_test:
+            c.execute("""
+                SELECT id, feature_name, title, description, version, created_at, is_test
+                FROM feature_announcements 
+                WHERE is_active = 1
+                ORDER BY created_at DESC
+            """)
+        else:
+            c.execute("""
+                SELECT id, feature_name, title, description, version, created_at, is_test
+                FROM feature_announcements 
+                WHERE is_active = 1 AND is_test = 0
+                ORDER BY created_at DESC
+            """)
         return c.fetchall()
+
+def get_users_without_notification_db(feature_id: int, test_user_id: int = None) -> List[int]:
+    """Получает список пользователей, которые не получали уведомление о фиче"""
+    with get_connection() as conn:
+        c = conn.cursor()
+        
+        # Проверяем, является ли фича тестовой
+        c.execute("SELECT is_test FROM feature_announcements WHERE id = ?", (feature_id,))
+        result = c.fetchone()
+        if not result:
+            return []
+        
+        is_test = result[0]
+        
+        if is_test and test_user_id:
+            # Для тестовых фич отправляем только тестовому пользователю
+            c.execute("""
+                SELECT ?
+                WHERE ? NOT IN (
+                    SELECT ufn.user_id
+                    FROM user_feature_notifications ufn
+                    WHERE ufn.feature_id = ?
+                )
+            """, (test_user_id, test_user_id, feature_id))
+            result = c.fetchone()
+            return [test_user_id] if result else []
+        elif not is_test:
+            # Для обычных фич отправляем всем пользователям
+            c.execute("""
+                SELECT DISTINCT t.user_id
+                FROM tasks t
+                WHERE t.user_id NOT IN (
+                    SELECT ufn.user_id
+                    FROM user_feature_notifications ufn
+                    WHERE ufn.feature_id = ?
+                )
+            """, (feature_id,))
+            return [row[0] for row in c.fetchall()]
+        else:
+            # Тестовая фича без указания тестового пользователя
+            return []
 
 def mark_feature_sent_db(user_id: int, feature_id: int) -> None:
     """Отмечает, что пользователь получил уведомление о фиче"""

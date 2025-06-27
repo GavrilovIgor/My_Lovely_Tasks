@@ -15,7 +15,7 @@ from telegram.ext import ContextTypes, ConversationHandler, PreCheckoutQueryHand
 from database import (
     get_tasks_db, toggle_task_status_db, add_task_db, delete_task_db,
     delete_completed_tasks_for_user, get_tasks_with_reminders, set_reminder,
-    update_task_priority, toggle_task_db, get_user_donations_db, get_total_donations_db, add_donation_db)
+    update_task_priority, toggle_task_db, get_user_donations_db, get_total_donations_db, add_donation_db, get_connection)
 from keyboards import get_main_keyboard, get_task_list_markup, get_cancel_keyboard, priority_emoji
 from utils import extract_categories, extract_reminder_time, extract_priority
 
@@ -156,22 +156,20 @@ async def admin_add_feature(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     """Команда для администратора для добавления новой фичи"""
     user_id = update.effective_user.id
     
-    # Проверка на администратора (замените YOUR_ADMIN_ID на ваш ID)
-    # if user_id != 91094:
-    #     await update.message.reply_text("❌ У вас нет прав для выполнения этой команды")
-    #     return
-    
     if len(context.args) < 3:
         await update.message.reply_text(
             "📝 **Использование команды /add_feature:**\n\n"
-            "`/add_feature <название> \"<заголовок>\" \"<описание>\" [версия]`\n\n"
+            "`/add_feature <название> \"<заголовок>\" \"<описание>\" [версия] [--test]`\n\n"
             "**Пример:**\n"
-            "`/add_feature priority_tasks \"Приоритеты задач\" \"Теперь можно устанавливать приоритеты задач с помощью восклицательных знаков!\" v1.2`\n\n"
+            "`/add_feature priority_tasks \"Приоритеты задач\" \"Теперь можно устанавливать приоритеты!\" v1.2`\n\n"
+            "**Тестовая фича (только для вас):**\n"
+            "`/add_feature test_feature \"Тест\" \"Описание\" v1.0 --test`\n\n"
             "**Параметры:**\n"
             "• `название` - техническое название фичи\n"
             "• `заголовок` - красивое название для пользователей\n"
             "• `описание` - подробное описание функции\n"
-            "• `версия` - номер версии (необязательно)",
+            "• `версия` - номер версии (необязательно)\n"
+            "• `--test` - флаг тестовой фичи (только для вас)",
             parse_mode='Markdown'
         )
         return
@@ -179,51 +177,120 @@ async def admin_add_feature(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     feature_name = context.args[0]
     title = context.args[1]
     description = context.args[2]
-    version = context.args[3] if len(context.args) > 3 else None
+    version = None
+    is_test = False
+    
+    # Обрабатываем дополнительные параметры
+    if len(context.args) > 3:
+        for arg in context.args[3:]:
+            if arg == "--test":
+                is_test = True
+            else:
+                version = arg
     
     from database import add_feature_announcement_db
-    feature_id = add_feature_announcement_db(feature_name, title, description, version)
+    feature_id = add_feature_announcement_db(feature_name, title, description, version, is_test)
+    
+    test_info = " (ТЕСТОВАЯ - только для вас)" if is_test else " (ПРОДАКШН - для всех пользователей)"
     
     await update.message.reply_text(
-        f"✅ Объявление о фиче добавлено!\n\n"
+        f"✅ Объявление о фиче добавлено!{test_info}\n\n"
         f"🆔 ID: {feature_id}\n"
         f"📝 Название: {feature_name}\n"
         f"📋 Заголовок: {title}\n"
         f"📄 Описание: {description}\n"
-        f"🏷️ Версия: {version or 'не указана'}\n\n"
-        f"🔔 Уведомления будут отправлены пользователям в течение часа."
+        f"🏷️ Версия: {version or 'не указана'}\n"
+        f"🧪 Тестовая: {'Да' if is_test else 'Нет'}\n\n"
+        f"🔔 Уведомления будут отправлены в течение часа."
     )
 
 async def test_feature_notifications(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Временная команда для тестирования уведомлений о фичах"""
-    from jobs import send_feature_announcements
-    await send_feature_announcements(context)
-    await update.message.reply_text("✅ Тестовая отправка уведомлений запущена")
+    """Команда для тестирования уведомлений о фичах (только тестовые)"""
+    user_id = update.effective_user.id
+    from jobs import send_test_feature_announcements
+    await send_test_feature_announcements(context, user_id)
+    await update.message.reply_text("✅ Тестовая отправка уведомлений запущена (только тестовые фичи)")
 
 async def admin_list_features(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Показывает список всех фич"""
-    user_id = update.effective_user.id
-    
-    # Проверка на администратора
-    # if user_id != 91094:
-    #     return
-    
     from database import get_active_features_db
-    features = get_active_features_db()
+    
+    features = get_active_features_db(include_test=True)
     
     if not features:
         await update.message.reply_text("📭 Нет активных объявлений о фичах")
         return
     
+    def escape_markdown(text):
+        """Экранирует специальные символы Markdown"""
+        escape_chars = r'_*[]()~`>#+-=|{}.!'
+        for ch in escape_chars:
+            text = text.replace(ch, f'\\{ch}')
+        return text
+    
     message = "📋 **Активные объявления о фичах:**\n\n"
-    for feature_id, feature_name, title, description, version, created_at in features:
+    for feature_id, feature_name, title, description, version, created_at, is_test in features:
         version_text = f" (v{version})" if version else ""
-        message += f"🆔 **{feature_id}** - {title}{version_text}\n"
-        message += f"📝 {feature_name}\n"
-        message += f"📄 {description[:100]}{'...' if len(description) > 100 else ''}\n"
+        test_flag = " 🧪 ТЕСТ" if is_test else " 🚀 ПРОДАКШН"
+        
+        # Экранируем специальные символы в тексте
+        safe_title = escape_markdown(title)
+        safe_feature_name = escape_markdown(feature_name)
+        safe_description = escape_markdown(description[:100])
+        if len(description) > 100:
+            safe_description += "..."
+        
+        message += f"🆔 **{feature_id}** - {safe_title}{version_text}{test_flag}\n"
+        message += f"📝 {safe_feature_name}\n"
+        message += f"📄 {safe_description}\n"
         message += f"📅 {created_at}\n\n"
     
     await update.message.reply_text(message, parse_mode='Markdown')
+
+async def promote_test_feature(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Переводит тестовую фичу в продакшн"""
+    user_id = update.effective_user.id
+    
+    if not context.args:
+        await update.message.reply_text(
+            "📝 Использование: `/promote_feature <ID>`\n\n"
+            "Переводит тестовую фичу в продакшн (для всех пользователей)\n"
+            "Используйте /list_features чтобы увидеть ID фич",
+            parse_mode='Markdown'
+        )
+        return
+    
+    try:
+        feature_id = int(context.args[0])
+        
+        with get_connection() as conn:
+            c = conn.cursor()
+            # Проверяем, что фича тестовая
+            c.execute("SELECT is_test, feature_name FROM feature_announcements WHERE id = ?", (feature_id,))
+            result = c.fetchone()
+            
+            if not result:
+                await update.message.reply_text("❌ Фича не найдена")
+                return
+                
+            is_test, feature_name = result
+            if not is_test:
+                await update.message.reply_text("❌ Эта фича уже в продакшне")
+                return
+            
+            # Переводим в продакшн
+            c.execute("UPDATE feature_announcements SET is_test = 0 WHERE id = ?", (feature_id,))
+            conn.commit()
+        
+        await update.message.reply_text(
+            f"🚀 Фича '{feature_name}' (ID: {feature_id}) переведена в продакшн!\n"
+            f"Теперь уведомления будут отправляться всем пользователям."
+        )
+        
+    except ValueError:
+        await update.message.reply_text("❌ ID должен быть числом")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка: {e}")
 
 async def admin_deactivate_feature(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Деактивирует фичу (останавливает отправку уведомлений)"""

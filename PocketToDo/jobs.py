@@ -53,9 +53,10 @@ async def send_feature_announcements(context: CallbackContext) -> None:
     
     from database import get_active_features_db, get_users_without_notification_db, mark_feature_sent_db
     
-    active_features = get_active_features_db()
+    # Получаем только продакшн фичи (не тестовые)
+    active_features = get_active_features_db(include_test=False)
     
-    for feature_id, feature_name, title, description, version, created_at in active_features:
+    for feature_id, feature_name, title, description, version, created_at, is_test in active_features:
         users_to_notify = get_users_without_notification_db(feature_id)
         
         if not users_to_notify:
@@ -89,10 +90,19 @@ async def send_feature_announcements(context: CallbackContext) -> None:
             except Exception as e:
                 if "bot can't initiate conversation" in str(e) or "Forbidden" in str(e):
                     logger.warning(f"⚠️ Не удалось отправить уведомление пользователю {user_id}: заблокирован")
-                    # Все равно отмечаем как отправленное, чтобы не пытаться снова
                     mark_feature_sent_db(user_id, feature_id)
                 else:
                     logger.error(f"❌ Ошибка отправки уведомления пользователю {user_id}: {e}")
         
         logger.info(f"📊 Отправлено {sent_count} уведомлений о фиче '{feature_name}'")
 
+async def send_test_feature_announcements(context: CallbackContext, test_user_id: int) -> None:
+    """Отправляет тестовые уведомления о фичах только тестовому пользователю"""
+    logger.info(f"🧪 Проверка тестовых фич для пользователя {test_user_id}")
+    
+    from database import get_active_features_db, get_users_without_notification_db, mark_feature_sent_db
+    
+    # Получаем только тестовые фичи
+    all_features = get_active_features_db(include_test=True)
+    test_features = [f for f in all_features if f[6] == 1]  # is_test = 1
+    
