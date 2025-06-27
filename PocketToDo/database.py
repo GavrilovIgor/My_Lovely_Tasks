@@ -368,21 +368,6 @@ def mark_feature_sent_db(user_id: int, feature_id: int) -> None:
         """, (user_id, feature_id))
         conn.commit()
 
-def get_users_without_notification_db(feature_id: int) -> List[int]:
-    """Получает список пользователей, которые не получали уведомление о фиче"""
-    with get_connection() as conn:
-        c = conn.cursor()
-        c.execute("""
-            SELECT DISTINCT t.user_id
-            FROM tasks t
-            WHERE t.user_id NOT IN (
-                SELECT ufn.user_id
-                FROM user_feature_notifications ufn
-                WHERE ufn.feature_id = ?
-            )
-        """, (feature_id,))
-        return [row[0] for row in c.fetchall()]
-
 def deactivate_feature_db(feature_id: int) -> None:
     """Деактивирует объявление о фиче (останавливает отправку уведомлений)"""
     with get_connection() as conn:
