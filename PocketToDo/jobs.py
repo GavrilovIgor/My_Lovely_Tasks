@@ -46,3 +46,53 @@ async def send_reminder_notification(context: CallbackContext) -> None:
                     set_reminder(task_id, None)
                 else:
                     logger.error(f"Ошибка при отправке напоминания: {e}")
+
+async def send_feature_announcements(context: CallbackContext) -> None:
+    """Отправляет уведомления о новых фичах пользователям"""
+    logger.info("🔔 Проверка новых фич для отправки уведомлений")
+    
+    from database import get_active_features_db, get_users_without_notification_db, mark_feature_sent_db
+    
+    active_features = get_active_features_db()
+    
+    for feature_id, feature_name, title, description, version, created_at in active_features:
+        users_to_notify = get_users_without_notification_db(feature_id)
+        
+        if not users_to_notify:
+            continue
+            
+        logger.info(f"📢 Отправка уведомлений о фиче '{feature_name}' для {len(users_to_notify)} пользователей")
+        
+        # Создаем клавиатуру для уведомления
+        keyboard = [
+            [InlineKeyboardButton("✨ Попробовать", callback_data=f"try_feature_{feature_id}")],
+            [InlineKeyboardButton("ℹ️ Подробнее", callback_data=f"feature_info_{feature_id}")],
+            [InlineKeyboardButton("❌ Закрыть", callback_data="close_notification")]
+        ]
+        
+        version_text = f" (версия {version})" if version else ""
+        message_text = f"🎉 **Новая функция: {title}**{version_text}\n\n{description}\n\n💡 Попробуйте прямо сейчас!"
+        
+        sent_count = 0
+        for user_id in users_to_notify:
+            try:
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=message_text,
+                    parse_mode='Markdown',
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+                mark_feature_sent_db(user_id, feature_id)
+                sent_count += 1
+                logger.info(f"✅ Уведомление о фиче отправлено пользователю {user_id}")
+                
+            except Exception as e:
+                if "bot can't initiate conversation" in str(e) or "Forbidden" in str(e):
+                    logger.warning(f"⚠️ Не удалось отправить уведомление пользователю {user_id}: заблокирован")
+                    # Все равно отмечаем как отправленное, чтобы не пытаться снова
+                    mark_feature_sent_db(user_id, feature_id)
+                else:
+                    logger.error(f"❌ Ошибка отправки уведомления пользователю {user_id}: {e}")
+        
+        logger.info(f"📊 Отправлено {sent_count} уведомлений о фиче '{feature_name}'")
+

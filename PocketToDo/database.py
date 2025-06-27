@@ -25,26 +25,46 @@ def get_connection():
             conn.close()
 
 def init_db() -> None:
+    check_table_structure()  # Добавьте эту строку временно
     with get_connection() as conn:
         c = conn.cursor()
-        c.execute('''CREATE TABLE IF NOT EXISTS tasks (
+        c.execute("""CREATE TABLE IF NOT EXISTS tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
+            userid INTEGER,
             text TEXT,
             done INTEGER DEFAULT 0,
             priority INTEGER DEFAULT 0,
             reminder_time TIMESTAMP DEFAULT NULL,
             reminder_sent INTEGER DEFAULT 0
-        )''')
+        )""")
         
-        # Создаем таблицу donations
-        c.execute('''CREATE TABLE IF NOT EXISTS donations (
+        c.execute("""CREATE TABLE IF NOT EXISTS donations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
+            userid INTEGER,
             amount INTEGER,
             payment_id TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )''')
+        )""")
+        
+        # Новые таблицы для фич
+        c.execute("""CREATE TABLE IF NOT EXISTS feature_announcements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            feature_name TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            version TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            is_active INTEGER DEFAULT 1
+        )""")
+        
+        c.execute("""CREATE TABLE IF NOT EXISTS user_feature_notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            feature_id INTEGER,
+            sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (feature_id) REFERENCES feature_announcements (id)
+        )""")
+
         # Добавить миграцию для существующей БД:
         c.execute("PRAGMA table_info(tasks)")
         columns = [column[1] for column in c.fetchall()]
@@ -89,14 +109,14 @@ def add_task_db(user_id: int, text: str, priority: int = 0) -> int:
         if reminder_time:
             reminder_str = reminder_time.strftime("%Y-%m-%d %H:%M:%S")
             c.execute(
-                "INSERT INTO tasks (user_id, text, done, priority, reminder_time) VALUES (?, ?, 0, ?, ?)",
+                "INSERT INTO tasks (userid, text, done, priority, reminder_time) VALUES (?, ?, 0, ?, ?)",
                 (user_id, text, priority, reminder_str),
             )
             task_id = c.lastrowid
             logger.info(f"Добавлена задача: id={task_id}, user_id={user_id}, text='{text}', priority={priority}, reminder_time={reminder_str}")
         else:
             c.execute(
-                "INSERT INTO tasks (user_id, text, done, priority) VALUES (?, ?, 0, ?)",
+                "INSERT INTO tasks (userid, text, done, priority) VALUES (?, ?, 0, ?)",
                 (user_id, text, priority),
             )
             task_id = c.lastrowid
@@ -284,3 +304,72 @@ def get_total_donations_db() -> tuple:
         c.execute('''SELECT COALESCE(SUM(amount), 0), COUNT(*) FROM donations''')
         result = c.fetchone()
         return (result[0], result[1]) if result else (0, 0)
+
+def add_feature_announcement_db(feature_name: str, title: str, description: str, version: str = None) -> int:
+    """Добавляет новое объявление о фиче"""
+    with get_connection() as conn:
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO feature_announcements (feature_name, title, description, version)
+            VALUES (?, ?, ?, ?)
+        """, (feature_name, title, description, version))
+        feature_id = c.lastrowid
+        conn.commit()
+        logger.info(f"Добавлено объявление о фиче: {feature_name} (ID: {feature_id})")
+        return feature_id
+
+def get_active_features_db() -> List[Tuple]:
+    """Получает активные объявления о фичах"""
+    with get_connection() as conn:
+        c = conn.cursor()
+        c.execute("""
+            SELECT id, feature_name, title, description, version, created_at
+            FROM feature_announcements 
+            WHERE is_active = 1
+            ORDER BY created_at DESC
+        """)
+        return c.fetchall()
+
+def mark_feature_sent_db(user_id: int, feature_id: int) -> None:
+    """Отмечает, что пользователь получил уведомление о фиче"""
+    with get_connection() as conn:
+        c = conn.cursor()
+        c.execute("""
+            INSERT OR IGNORE INTO user_feature_notifications (user_id, feature_id)
+            VALUES (?, ?)
+        """, (user_id, feature_id))
+        conn.commit()
+
+def get_users_without_notification_db(feature_id: int) -> List[int]:
+    """Получает список пользователей, которые не получали уведомление о фиче"""
+    with get_connection() as conn:
+        c = conn.cursor()
+        c.execute("""
+            SELECT DISTINCT t.user_id
+            FROM tasks t
+            WHERE t.user_id NOT IN (
+                SELECT ufn.user_id
+                FROM user_feature_notifications ufn
+                WHERE ufn.feature_id = ?
+            )
+        """, (feature_id,))
+        return [row[0] for row in c.fetchall()]
+
+def deactivate_feature_db(feature_id: int) -> None:
+    """Деактивирует объявление о фиче (останавливает отправку уведомлений)"""
+    with get_connection() as conn:
+        c = conn.cursor()
+        c.execute("UPDATE feature_announcements SET is_active = 0 WHERE id = ?", (feature_id,))
+        conn.commit()
+        logger.info(f"Фича {feature_id} деактивирована")
+
+# Добавьте временно в database.py для проверки
+def check_table_structure():
+    with get_connection() as conn:
+        c = conn.cursor()
+        c.execute("PRAGMA table_info(tasks)")
+        columns = c.fetchall()
+        print("Структура таблицы tasks:")
+        for column in columns:
+            print(f"  {column[1]} ({column[2]})")
+

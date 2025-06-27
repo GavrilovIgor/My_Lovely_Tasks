@@ -37,14 +37,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 from database import init_db
-from handlers import (
-    start, help_command, list_tasks, add, save_task, 
-    task_action, add_task_from_text, main_menu_handler,
-    ask_delete_tasks, delete_tasks_by_numbers, send_reminder,
-    SETTING_CUSTOM_REMINDER, save_custom_reminder, start_custom_reminder, 
-    support_developer, handle_donation_callback, pre_checkout_donation_handler, successful_donation_handler, stop_bot)
+from handlers import (start, help_command, list_tasks, add, save_task, task_action, 
+                     add_task_from_text, main_menu_handler, ask_delete_tasks, 
+                     delete_tasks_by_numbers, send_reminder, SETTING_CUSTOM_REMINDER, 
+                     save_custom_reminder, start_custom_reminder, support_developer, 
+                     handle_donation_callback, pre_checkout_donation_handler, 
+                     successful_donation_handler, stop_bot, handle_feature_notification,
+                     admin_add_feature, admin_list_features, admin_deactivate_feature, test_feature_notifications)
 
-from jobs import send_reminder_notification
+from jobs import send_reminder_notification, send_feature_announcements
 
 menu_filter = (
     filters.Regex(r"^📋 Мои задачи$") |
@@ -102,13 +103,19 @@ def main():
         fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)]
     )
 
-
+    # Добавление обработчиков
     app.add_handler(reminder_conv_handler)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("list", list_tasks))
     app.add_handler(CommandHandler("stop", stop_bot))
-    app.add_handler(CallbackQueryHandler(handle_donation_callback, pattern="^(donate_|payment_|cancel_payment)"))
+
+    # Новые команды для управления фичами
+    app.add_handler(CommandHandler("add_feature", admin_add_feature))
+    app.add_handler(CommandHandler("list_features", admin_list_features))
+    app.add_handler(CommandHandler("deactivate_feature", admin_deactivate_feature))
+    app.add_handler(CallbackQueryHandler(handle_donation_callback, pattern="donate|payment|cancel"))
+    app.add_handler(CallbackQueryHandler(handle_feature_notification, pattern=r"^(try_feature_|feature_info_|close_notification)"))
     app.add_handler(CallbackQueryHandler(task_action))
     app.add_handler(conv_handler)
     app.add_handler(delete_conv_handler)
@@ -116,8 +123,10 @@ def main():
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_donation_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & ~menu_filter, add_task_from_text))
     app.add_handler(MessageHandler(menu_filter, main_menu_handler))
+    app.add_handler(CommandHandler("test_notifications", test_feature_notifications))
     job_queue = app.job_queue
     job_queue.run_repeating(send_reminder_notification, interval=60, first=10)
+    job_queue.run_repeating(send_feature_announcements, interval=3600, first=30)
     app.job_queue.run_once(setup_commands, 1)
     logger.info("Бот запущен")
     print(f"Бот запущен! Данные сохраняются в {DB_PATH}. Логи в {logs_dir}")

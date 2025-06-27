@@ -121,6 +121,140 @@ async def stop_bot(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     
     logger.info(f"Bot stopped for user {user_id}")
 
+async def handle_feature_notification(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обрабатывает нажатия на кнопки в уведомлениях о фичах"""
+    query = update.callback_query
+    await query.answer()
+    
+    callback_data = query.data
+    
+    if callback_data.startswith("try_feature_"):
+        feature_id = callback_data.split("_")[-1]
+        await query.edit_message_text(
+            "🚀 Отлично! Новая функция уже доступна в главном меню.\n\n"
+            "Используйте /list для просмотра ваших задач или просто отправьте новую задачу!",
+            reply_markup=None
+        )
+        
+    elif callback_data.startswith("feature_info_"):
+        feature_id = callback_data.split("_")[-1]
+        await query.edit_message_text(
+            "📖 **Подробная информация**\n\n"
+            "Эта функция поможет вам лучше организовать ваши задачи. "
+            "Все новые возможности автоматически доступны в боте.\n\n"
+            "💬 Если у вас есть вопросы, используйте команду /help",
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔙 Назад", callback_data=f"try_feature_{feature_id}")
+            ]])
+        )
+        
+    elif callback_data == "close_notification":
+        await query.edit_message_text("✅ Уведомление закрыто")
+
+async def admin_add_feature(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Команда для администратора для добавления новой фичи"""
+    user_id = update.effective_user.id
+    
+    # Проверка на администратора (замените YOUR_ADMIN_ID на ваш ID)
+    # if user_id != 91094:
+    #     await update.message.reply_text("❌ У вас нет прав для выполнения этой команды")
+    #     return
+    
+    if len(context.args) < 3:
+        await update.message.reply_text(
+            "📝 **Использование команды /add_feature:**\n\n"
+            "`/add_feature <название> \"<заголовок>\" \"<описание>\" [версия]`\n\n"
+            "**Пример:**\n"
+            "`/add_feature priority_tasks \"Приоритеты задач\" \"Теперь можно устанавливать приоритеты задач с помощью восклицательных знаков!\" v1.2`\n\n"
+            "**Параметры:**\n"
+            "• `название` - техническое название фичи\n"
+            "• `заголовок` - красивое название для пользователей\n"
+            "• `описание` - подробное описание функции\n"
+            "• `версия` - номер версии (необязательно)",
+            parse_mode='Markdown'
+        )
+        return
+    
+    feature_name = context.args[0]
+    title = context.args[1]
+    description = context.args[2]
+    version = context.args[3] if len(context.args) > 3 else None
+    
+    from database import add_feature_announcement_db
+    feature_id = add_feature_announcement_db(feature_name, title, description, version)
+    
+    await update.message.reply_text(
+        f"✅ Объявление о фиче добавлено!\n\n"
+        f"🆔 ID: {feature_id}\n"
+        f"📝 Название: {feature_name}\n"
+        f"📋 Заголовок: {title}\n"
+        f"📄 Описание: {description}\n"
+        f"🏷️ Версия: {version or 'не указана'}\n\n"
+        f"🔔 Уведомления будут отправлены пользователям в течение часа."
+    )
+
+async def test_feature_notifications(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Временная команда для тестирования уведомлений о фичах"""
+    from jobs import send_feature_announcements
+    await send_feature_announcements(context)
+    await update.message.reply_text("✅ Тестовая отправка уведомлений запущена")
+
+async def admin_list_features(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Показывает список всех фич"""
+    user_id = update.effective_user.id
+    
+    # Проверка на администратора
+    # if user_id != 91094:
+    #     return
+    
+    from database import get_active_features_db
+    features = get_active_features_db()
+    
+    if not features:
+        await update.message.reply_text("📭 Нет активных объявлений о фичах")
+        return
+    
+    message = "📋 **Активные объявления о фичах:**\n\n"
+    for feature_id, feature_name, title, description, version, created_at in features:
+        version_text = f" (v{version})" if version else ""
+        message += f"🆔 **{feature_id}** - {title}{version_text}\n"
+        message += f"📝 {feature_name}\n"
+        message += f"📄 {description[:100]}{'...' if len(description) > 100 else ''}\n"
+        message += f"📅 {created_at}\n\n"
+    
+    await update.message.reply_text(message, parse_mode='Markdown')
+
+async def admin_deactivate_feature(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Деактивирует фичу (останавливает отправку уведомлений)"""
+    user_id = update.effective_user.id
+    
+    # Проверка на администратора
+    # if user_id != 91094:
+    #     return
+    
+    if not context.args:
+        await update.message.reply_text(
+            "📝 Использование: `/deactivate_feature <ID>`\n\n"
+            "Используйте /list_features чтобы увидеть ID фич",
+            parse_mode='Markdown'
+        )
+        return
+    
+    try:
+        feature_id = int(context.args[0])
+        from database import deactivate_feature_db
+        deactivate_feature_db(feature_id)
+        
+        await update.message.reply_text(
+            f"✅ Фича с ID {feature_id} деактивирована.\n"
+            f"Уведомления больше не будут отправляться."
+        )
+    except ValueError:
+        await update.message.reply_text("❌ ID должен быть числом")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка: {e}")
+
 async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_chat.type in ['group', 'supergroup']:
         entity_id = update.effective_chat.id
