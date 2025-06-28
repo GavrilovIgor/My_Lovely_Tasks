@@ -45,7 +45,28 @@ from handlers import (start, help_command, list_tasks, add, save_task, task_acti
                      successful_donation_handler, stop_bot, handle_feature_notification,
                      admin_add_feature, admin_list_features, admin_deactivate_feature, test_feature_notifications, promote_test_feature)
 
-from jobs import send_reminder_notification, send_feature_announcements
+from jobs import send_reminder_notification, send_feature_announcements, send_weekly_motivation
+
+def get_seconds_until_next_monday_9am():
+    """Возвращает количество секунд до следующего понедельника 09:00 МСК"""
+    # Текущее время в МСК (UTC+3)
+    now = datetime.now(timezone(timedelta(hours=3)))
+    
+    # Находим следующий понедельник
+    days_ahead = 0 - now.weekday()  # 0 = понедельник
+    if days_ahead <= 0:  # Если сегодня понедельник или позже
+        days_ahead += 7  # Берём следующий понедельник
+    
+    # Создаём дату следующего понедельника в 09:00
+    next_monday = now + timedelta(days=days_ahead)
+    next_monday_9am = next_monday.replace(hour=9, minute=0, second=0, microsecond=0)
+    
+    # Если время уже прошло (например, сейчас понедельник 10:00), берём следующую неделю
+    if next_monday_9am <= now:
+        next_monday_9am += timedelta(days=7)
+    
+    # Возвращаем разность в секундах
+    return (next_monday_9am - now).total_seconds()
 
 menu_filter = (
     filters.Regex(r"^📋 Мои задачи$") |
@@ -128,6 +149,13 @@ def main():
     job_queue = app.job_queue
     job_queue.run_repeating(send_reminder_notification, interval=60, first=10)
     job_queue.run_repeating(send_feature_announcements, interval=3600, first=30)
+    # Еженедельная мотивационная рассылка каждый понедельник в 09:00 МСК
+    first_monday_seconds = get_seconds_until_next_monday_9am()
+    job_queue.run_repeating(
+    send_weekly_motivation,
+    interval=7*24*60*60,  # 7 дней в секундах (604800 секунд)
+    first=first_monday_seconds)
+    logger.info(f"Еженедельная рассылка запланирована. Первый запуск через {first_monday_seconds/3600:.1f} часов")
     app.job_queue.run_once(setup_commands, 1)
     logger.info("Бот запущен")
     print(f"Бот запущен! Данные сохраняются в {DB_PATH}. Логи в {logs_dir}")
