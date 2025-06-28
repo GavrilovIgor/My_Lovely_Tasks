@@ -121,37 +121,6 @@ async def stop_bot(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     
     logger.info(f"Bot stopped for user {user_id}")
 
-async def handle_feature_notification(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обрабатывает нажатия на кнопки в уведомлениях о фичах"""
-    query = update.callback_query
-    await query.answer()
-    
-    callback_data = query.data
-    
-    if callback_data.startswith("try_feature_"):
-        feature_id = callback_data.split("_")[-1]
-        await query.edit_message_text(
-            "🚀 Отлично! Новая функция уже доступна в главном меню.\n\n"
-            "Используйте /list для просмотра ваших задач или просто отправьте новую задачу!",
-            reply_markup=None
-        )
-        
-    elif callback_data.startswith("feature_info_"):
-        feature_id = callback_data.split("_")[-1]
-        await query.edit_message_text(
-            "📖 **Подробная информация**\n\n"
-            "Эта функция поможет вам лучше организовать ваши задачи. "
-            "Все новые возможности автоматически доступны в боте.\n\n"
-            "💬 Если у вас есть вопросы, используйте команду /help",
-            parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("🔙 Назад", callback_data=f"try_feature_{feature_id}")
-            ]])
-        )
-        
-    elif callback_data == "close_notification":
-        await query.edit_message_text("✅ Уведомление закрыто")
-
 async def admin_add_feature(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Команда для администратора для добавления новой фичи"""
     user_id = update.effective_user.id

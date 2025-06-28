@@ -64,27 +64,19 @@ async def send_feature_announcements(context: CallbackContext) -> None:
             
         logger.info(f"📢 Отправка уведомлений о фиче '{feature_name}' для {len(users_to_notify)} пользователей")
         
-        # Создаем клавиатуру для уведомления
-        keyboard = [
-            [InlineKeyboardButton("✨ Попробовать", callback_data=f"try_feature_{feature_id}")],
-            [InlineKeyboardButton("ℹ️ Подробнее", callback_data=f"feature_info_{feature_id}")],
-            [InlineKeyboardButton("❌ Закрыть", callback_data="close_notification")]
-        ]
-        
         version_text = f" (версия {version})" if version else ""
         # Заменяем подчеркивания на пробелы для красивого отображения
         display_title = title.replace("_", " ")
         display_description = description.replace("_", " ")
         message_text = f"🎉 Новая функция: {display_title}{version_text}\n\n{display_description}\n\n💡 Попробуйте прямо сейчас!"
-
+        
         sent_count = 0
         for user_id in users_to_notify:
             try:
+                # Простое уведомление без кнопок
                 await context.bot.send_message(
                     chat_id=user_id,
-                    text=message_text,
-                    parse_mode='Markdown',
-                    reply_markup=InlineKeyboardMarkup(keyboard)
+                    text=message_text
                 )
                 mark_feature_sent_db(user_id, feature_id)
                 sent_count += 1
@@ -122,26 +114,17 @@ async def send_test_feature_announcements(context: CallbackContext, test_user_id
             
         logger.info(f"🧪 Отправка ТЕСТОВОГО уведомления о фиче '{feature_name}' пользователю {test_user_id}")
         
-        # Создаем клавиатуру для уведомления
-        keyboard = [
-            [InlineKeyboardButton("✨ Попробовать", callback_data=f"try_feature_{feature_id}")],
-            [InlineKeyboardButton("ℹ️ Подробнее", callback_data=f"feature_info_{feature_id}")],
-            [InlineKeyboardButton("❌ Закрыть", callback_data="close_notification")]
-        ]
-        
         version_text = f" (версия {version})" if version else ""
-        # Убираем все форматирование и используем обычный текст
         # Заменяем подчеркивания на пробелы для красивого отображения
         display_title = title.replace("_", " ")
         display_description = description.replace("_", " ")
         message_text = f"🧪 ТЕСТ: {display_title}{version_text}\n\n{display_description}\n\n💡 Это тестовое уведомление - другие пользователи его не получат!"
-
+        
         try:
+            # Простое уведомление без кнопок
             await context.bot.send_message(
                 chat_id=test_user_id,
-                text=message_text,
-                # Убираем parse_mode полностью
-                reply_markup=InlineKeyboardMarkup(keyboard)
+                text=message_text
             )
             mark_feature_sent_db(test_user_id, feature_id)
             logger.info(f"✅ Тестовое уведомление о фиче отправлено пользователю {test_user_id}")
@@ -150,6 +133,7 @@ async def send_test_feature_announcements(context: CallbackContext, test_user_id
             logger.error(f"❌ Ошибка отправки тестового уведомления пользователю {test_user_id}: {e}")
     
     logger.info(f"🧪 Завершена отправка тестовых уведомлений для пользователя {test_user_id}")
+
 async def send_weekly_motivation(context: CallbackContext) -> None:
     """Отправляет еженедельное мотивационное сообщение всем пользователям"""
     logger.info("Запуск еженедельной мотивационной рассылки")

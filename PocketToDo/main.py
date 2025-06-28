@@ -42,8 +42,7 @@ from handlers import (start, help_command, list_tasks, add, save_task, task_acti
                      delete_tasks_by_numbers, send_reminder, SETTING_CUSTOM_REMINDER, 
                      save_custom_reminder, start_custom_reminder, support_developer, 
                      handle_donation_callback, pre_checkout_donation_handler, 
-                     successful_donation_handler, stop_bot, handle_feature_notification,
-                     admin_add_feature, admin_list_features, admin_deactivate_feature, test_feature_notifications, promote_test_feature)
+                     successful_donation_handler, stop_bot, admin_add_feature, admin_list_features, admin_deactivate_feature, test_feature_notifications, promote_test_feature)
 
 from jobs import send_reminder_notification, send_feature_announcements, send_weekly_motivation
 
@@ -136,7 +135,6 @@ def main():
     app.add_handler(CommandHandler("list_features", admin_list_features))
     app.add_handler(CommandHandler("deactivate_feature", admin_deactivate_feature))
     app.add_handler(CallbackQueryHandler(handle_donation_callback, pattern="donate|payment|cancel"))
-    app.add_handler(CallbackQueryHandler(handle_feature_notification, pattern=r"^(try_feature_|feature_info_|close_notification)"))
     app.add_handler(CallbackQueryHandler(task_action))
     app.add_handler(conv_handler)
     app.add_handler(delete_conv_handler)
