@@ -150,9 +150,10 @@ def main():
     # Еженедельная мотивационная рассылка каждый понедельник в 09:00 МСК
     first_monday_seconds = get_seconds_until_next_monday_9am()
     job_queue.run_repeating(
-    send_weekly_motivation,
-    interval=7*24*60*60,  # 7 дней в секундах (604800 секунд)
-    first=first_monday_seconds)
+        send_weekly_motivation,
+        interval=7*24*60*60,  # 7 дней в секундах (604800 секунд)
+        first=first_monday_seconds
+    )
     logger.info(f"Еженедельная рассылка запланирована. Первый запуск через {first_monday_seconds/3600:.1f} часов")
     app.job_queue.run_once(setup_commands, 1)
     logger.info("Бот запущен")

@@ -156,13 +156,13 @@ async def send_weekly_motivation(context: CallbackContext) -> None:
             sent_count += 1
             logger.info(f"Мотивационное сообщение отправлено пользователю {user_id}")
         except Exception as e:
-            # Пользователь заблокировал бота или удалил чат - это нормально
             if "bot can't initiate conversation" in str(e) or "Forbidden" in str(e):
                 logger.warning(f"Не удалось отправить сообщение пользователю {user_id}: заблокирован или удален чат")
             else:
                 logger.error(f"Ошибка при отправке сообщения пользователю {user_id}: {e}")
     
     logger.info(f"Еженедельная рассылка завершена. Отправлено сообщений: {sent_count} из {len(user_ids)}")
+
 
 
     
