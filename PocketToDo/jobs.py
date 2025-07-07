@@ -135,20 +135,32 @@ async def send_test_feature_announcements(context: CallbackContext, test_user_id
     logger.info(f"🧪 Завершена отправка тестовых уведомлений для пользователя {test_user_id}")
 
 async def send_weekly_motivation(context: CallbackContext) -> None:
-    """Отправляет еженедельное мотивационное сообщение всем пользователям"""
     logger.info("Запуск еженедельной мотивационной рассылки")
     
-    # Получаем всех уникальных пользователей из базы
-    from database import getconnection
-    with getconnection() as conn:
+    from database import get_connection
+    
+    with get_connection() as conn:
         c = conn.cursor()
-        c.execute("SELECT DISTINCT userid FROM tasks")
+        
+        # Проверяем и добавляем колонку user_id если её нет
+        c.execute("PRAGMA table_info(tasks)")
+        columns = [column[1] for column in c.fetchall()]
+        if 'user_id' not in columns:
+            logger.info("Колонка user_id не найдена, добавляем...")
+            c.execute("ALTER TABLE tasks ADD COLUMN user_id INTEGER")
+            conn.commit()
+            logger.info("Колонка user_id добавлена в таблицу tasks")
+        
+        # Получаем пользователей
+        c.execute("SELECT DISTINCT user_id FROM tasks WHERE user_id IS NOT NULL")
         user_ids = [row[0] for row in c.fetchall()]
     
-    # Текст сообщения
+    if not user_ids:
+        logger.info("Нет пользователей для рассылки")
+        return
+    
     message_text = "🌟 Новая неделя — новые дела!\nНе держи все задачи в голове. Разгрузи её, выписав их сюда ✨"
     
-    # Отправляем сообщение каждому пользователю
     sent_count = 0
     for user_id in user_ids:
         try:
@@ -157,11 +169,12 @@ async def send_weekly_motivation(context: CallbackContext) -> None:
             logger.info(f"Мотивационное сообщение отправлено пользователю {user_id}")
         except Exception as e:
             if "bot can't initiate conversation" in str(e) or "Forbidden" in str(e):
-                logger.warning(f"Не удалось отправить сообщение пользователю {user_id}: заблокирован или удален чат")
+                logger.warning(f"Не удалось отправить сообщение пользователю {user_id}")
             else:
-                logger.error(f"Ошибка при отправке сообщения пользователю {user_id}: {e}")
+                logger.error(f"Ошибка при отправке пользователю {user_id}: {e}")
     
-    logger.info(f"Еженедельная рассылка завершена. Отправлено сообщений: {sent_count} из {len(user_ids)}")
+    logger.info(f"Еженедельная мотивационная рассылка завершена. Отправлено: {sent_count} из {len(user_ids)}")
+
 
 
 

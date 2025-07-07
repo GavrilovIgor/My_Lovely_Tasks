@@ -73,6 +73,33 @@ menu_filter = (
     filters.Regex(r"^🫶 Поддержи проект$")
 ) & ~filters.COMMAND
 
+def get_seconds_until_next_monday_9am():
+    """Возвращает количество секунд до следующего понедельника 09:00 МСК"""
+    # Текущее время в МСК (UTC+3)
+    now = datetime.now(timezone(timedelta(hours=3)))
+    
+    # Находим следующий понедельник
+    days_ahead = 0 - now.weekday()  # 0 = понедельник
+    if days_ahead <= 0:  # Если сегодня понедельник или позже
+        days_ahead += 7  # Берём следующий понедельник
+    
+    # Создаём дату следующего понедельника в 09:00
+    next_monday = now + timedelta(days=days_ahead)
+    next_monday_9am = next_monday.replace(hour=9, minute=0, second=0, microsecond=0)
+    
+    # Если время уже прошло (например, сейчас понедельник 10:00), берём следующую неделю
+    if next_monday_9am <= now:
+        next_monday_9am += timedelta(days=7)
+    
+    # Возвращаем разность в секундах
+    return (next_monday_9am - now).total_seconds()
+
+menu_filter = (
+    filters.Regex(r"^📋 Мои задачи$") |
+    filters.Regex(r"^🧹 Удалить выполненные$") |
+    filters.Regex(r"^🫶 Поддержи проект$")
+) & ~filters.COMMAND
+
 async def setup_commands(application):
     from telegram import BotCommand, BotCommandScopeDefault
     commands = [
